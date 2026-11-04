@@ -20,6 +20,7 @@
     <button role="tab" data-tab="overview" aria-selected="true">Visão geral</button>
     <button role="tab" data-tab="movers">Variações</button>
     <button role="tab" data-tab="cards">Cartas</button>
+    <button role="tab" data-tab="meta" data-duels hidden>Meta × preço</button>
   </nav>
 </header>
 
@@ -49,6 +50,7 @@
   <div class="f"><span>Coleção</span><div class="ms" id="f-set"></div></div>
   <div class="f inks" id="f-inks" role="group" aria-label="Cor de tinta"></div>
   <div class="f"><span>Raridade</span><div class="ms" id="f-rarity"></div></div>
+  <div class="f" data-duels hidden><span>Mechanic</span><div class="ms" id="f-mech"></div></div>
   <label class="f">Impressão
     <select id="f-printing">
       <option value="">Todas</option>
@@ -93,7 +95,7 @@
           <h2 id="dist-title">Valor por coleção</h2>
           <div class="controls">
             <div class="seg" role="group" aria-label="Agrupar por" data-ctl="group">
-              <button type="button" data-v="set">Coleção</button><button type="button" data-v="ink">Tinta</button><button type="button" data-v="setink">Coleção × tinta</button>
+              <button type="button" data-v="set">Coleção</button><button type="button" data-v="ink">Tinta</button><button type="button" data-v="setink">Coleção × tinta</button><button type="button" data-v="mech" data-duels hidden>Mechanic</button>
             </div>
             <div class="seg" role="group" aria-label="Métrica" data-ctl="distMetric">
               <button type="button" data-v="total">Total</button><button type="button" data-v="avg">Média</button>
@@ -129,13 +131,22 @@
         <h2 id="grpchg-title">Variação por tinta</h2>
         <div class="controls">
           <div class="seg" role="group" aria-label="Agrupar por" data-ctl="chgGroup">
-            <button type="button" data-v="ink">Tinta</button><button type="button" data-v="rarity">Raridade</button><button type="button" data-v="set">Coleção</button>
+            <button type="button" data-v="ink">Tinta</button><button type="button" data-v="rarity">Raridade</button><button type="button" data-v="set">Coleção</button><button type="button" data-v="mech" data-duels hidden>Mechanic</button>
           </div>
         </div>
       </div>
       <p class="muted small" id="grpchg-note"></p>
       <p class="muted small">Clique numa barra para filtrar por ela; clique de novo para tirar o filtro.</p>
       <div class="chart" id="grpchg-wrap" style="height:340px"><canvas id="c-grpchg"></canvas></div>
+    </article>
+  </section>
+
+  <section id="tab-meta" class="tab" hidden>
+    <article class="card">
+      <div class="row-between"><h2>Uso no meta × preço <span class="muted" id="meta-count"></span></h2>
+        <div class="pager"><button type="button" id="mp-prev">‹</button><span id="mp-info"></span><button type="button" id="mp-next">›</button></div></div>
+      <p class="muted small" id="meta-note"></p>
+      <div class="table-wrap"><table class="t sortable" id="t-meta"></table></div>
     </article>
   </section>
 
@@ -167,6 +178,7 @@
         </div>
       </div>
       <div class="chart" style="height:260px"><canvas id="c-detail"></canvas></div>
+      <div id="d-duels" hidden></div>
       <p class="muted small" id="d-note"></p>
       <p><a id="d-link" target="_blank" rel="noopener">Ver no TCGplayer ↗</a></p>
     </div>
@@ -176,6 +188,7 @@
 <footer>
   <p>Preços: market price do <a href="https://www.tcgplayer.com/" target="_blank" rel="noopener">TCGplayer</a> via <a href="https://tcgcsv.com" target="_blank" rel="noopener">TCGCSV</a>, atualizados diariamente. Histórico desde fev/2024 (semanal) e diário nos últimos 90 dias.</p>
   <p>Formatos: Core = coleções dentro da rotação atual (9 em diante), contando reimpressões; Infinity = todas as coleções principais, menos a lista de banidas. Illumineer's Quest e promos sem versão numa coleção principal ficam fora dos dois.</p>
+  <p data-duels hidden>Uso no meta e classificação "mechanic": <a href="https://duels.ink" target="_blank" rel="noopener">Duels.ink</a> (ranqueado online melhor de 1). Versão privada.</p>
   <p>Site de fã, não afiliado à Disney, Ravensburger ou TCGplayer. Não é recomendação de investimento.</p>
 </footer>
 </div>

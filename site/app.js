@@ -16,7 +16,8 @@ const PAGE = 50;
 const S = {
   cards: [], sets: [], setsById: new Map(), events: { releases: [], rotations: [] }, latest: null, first: null,
   histories: new Map(),
-  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), printing: "", min: 0, q: "" },
+  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), printing: "", min: 0, q: "" },
+  duels: null, duelsByPid: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
   view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
@@ -44,6 +45,12 @@ async function init() {
   S.cards = cards.cards; S.latest = cards.latest; S.first = cards.firstSnapshot; S.events = events;
   S.sets = sets.filter((s) => s.cards > 0);
   S.sets.forEach((s) => S.setsById.set(s.groupId, s));
+  // Optional Duels.ink data: present only in the private build.
+  try {
+    S.duels = await getJSON("data/duels.json");
+    S.duels.cards.forEach((d) => d.pids.forEach((pid) => S.duelsByPid.set(pid, d)));
+    document.querySelectorAll("[data-duels]").forEach((e) => e.hidden = false);
+  } catch (e) { S.duels = null; }
   $("updated").textContent = `Preços de ${fmtDate(S.latest)} · ${S.cards.length.toLocaleString("pt-BR")} cartas/impressões · histórico desde ${fmtDate(S.first)}`;
   buildFilters();
   readHash();
@@ -83,6 +90,7 @@ function buildFilters() {
   S.ms.sets = multiSelect($("f-set"), [...S.sets].reverse().map((s) => [String(s.groupId), `${s.name} (${s.abbreviation})`]), f.sets, "Todas", changed);
   const rar = [...new Set(S.cards.map((c) => c.rarity).filter(Boolean))].sort((a, b) => rank(a) - rank(b));
   S.ms.rarities = multiSelect($("f-rarity"), rar.map((r) => [r, r]), f.rarities, "Todas", changed);
+  if (S.duels) S.ms.mechs = multiSelect($("f-mech"), S.duels.mechanics.map((m, i) => [String(i), `${m.group}: ${m.label}`]), f.mechs, "Todas", changed);
   INKS.forEach(([name, color]) => {
     const b = el("button", "ink"); b.type = "button"; b.setAttribute("aria-pressed", "false"); b.dataset.ink = name;
     const dot = el("i"); dot.style.background = color;
@@ -96,12 +104,14 @@ function buildFilters() {
   bind("f-printing", "printing"); bind("f-min", "min", "input", (v) => +v || 0);
   bind("f-q", "q", "input", (v) => v.trim().toLowerCase());
   $("f-reset").onclick = () => {
-    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear();
+    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear(); f.mechs.clear();
     changed();
   };
   document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; changed(); });
   $("pg-prev").onclick = () => { S.page = Math.max(0, S.page - 1); renderCards(); };
   $("pg-next").onclick = () => { S.page++; renderCards(); };
+  $("mp-prev").onclick = () => { S.metaPage = Math.max(0, S.metaPage - 1); renderMeta(); };
+  $("mp-next").onclick = () => { S.metaPage++; renderMeta(); };
   // view controls (segmented buttons + event checkboxes); they don't change the filter, only the chart
   document.querySelectorAll(".seg[data-ctl]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.onclick = () => {
     S.view[g.dataset.ctl] = b.dataset.v; syncView(); writeHash();
@@ -117,7 +127,7 @@ function syncControls() {
   const f = S.filter;
   $("f-window").value = f.window; $("f-from").value = f.from; $("f-to").value = f.to; $("f-format").value = f.format;
   $("f-printing").value = f.printing; $("f-min").value = f.min; $("f-q").value = f.q;
-  S.ms.sets.sync(); S.ms.rarities.sync();
+  S.ms.sets.sync(); S.ms.rarities.sync(); if (S.ms.mechs) S.ms.mechs.sync();
   document.querySelectorAll(".ink").forEach((b) => b.setAttribute("aria-pressed", f.inks.has(b.dataset.ink)));
   document.querySelector(".custom-range").hidden = f.window !== "custom";
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === S.tab));
@@ -138,6 +148,7 @@ function writeHash() {
   if (f.sets.size) p.set("set", [...f.sets].join(","));
   if (f.inks.size) p.set("ink", [...f.inks].join(","));
   if (f.rarities.size) p.set("rar", [...f.rarities].join(","));
+  if (f.mechs.size) p.set("mech", [...f.mechs].join(","));
   if (f.printing) p.set("pr", f.printing);
   if (f.min) p.set("min", f.min);
   if (f.q) p.set("q", f.q);
@@ -147,7 +158,7 @@ function writeHash() {
   if (v.chgGroup !== "ink") p.set("cg", v.chgGroup);
   if (!v.ev.rel) p.set("norel", 1);
   if (!v.ev.rot) p.set("norot", 1);
-  history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
+  try { history.replaceState(null, "", p.toString() ? "#" + p : location.pathname); } catch (e) { /* sandboxed frame */ }
 }
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1)), f = S.filter, v = S.view;
@@ -158,6 +169,7 @@ function readHash() {
   f.sets.clear(); list("set").forEach((x) => f.sets.add(x));
   f.inks.clear(); list("ink").forEach((x) => f.inks.add(x));
   f.rarities.clear(); list("rar").forEach((x) => f.rarities.add(x));
+  f.mechs.clear(); if (S.duels) list("mech").forEach((x) => f.mechs.add(x));
   f.printing = p.get("pr") || ""; f.min = +(p.get("min") || 0); f.q = p.get("q") || "";
   v.evoMetric = p.get("evo") || "total"; v.group = p.get("grp") || "set"; v.distMetric = p.get("dm") || "total"; v.chgGroup = p.get("cg") || "ink";
   v.ev.rel = !p.get("norel"); v.ev.rot = !p.get("norot");
@@ -190,6 +202,7 @@ function passes(c) {
   if (f.sets.size && !f.sets.has(String(c.set))) return false;
   if (f.inks.size && !inkList(c).some((i) => f.inks.has(i))) return false;
   if (f.rarities.size && !f.rarities.has(c.rarity)) return false;
+  if (f.mechs.size) { const d = duelsOf(c); if (!d || !d.m.some((i) => f.mechs.has(String(i)))) return false; }
   if (f.printing && c.printing !== f.printing) return false;
   if (f.min && !(c.price >= f.min)) return false;
   if (f.q && !c.name.toLowerCase().includes(f.q)) return false;
@@ -237,6 +250,7 @@ function render() {
   if (S.tab === "overview") renderOverview(S.rows);
   if (S.tab === "movers") renderMovers(S.rows);
   if (S.tab === "cards") renderCards();
+  if (S.tab === "meta") { S.metaPage = 0; renderMeta(); }
 }
 
 function renderOverview(rows) {
@@ -265,7 +279,7 @@ function renderDistribution(priced) {
   const setsIn = S.sets.filter((s) => priced.some((c) => c.set === s.groupId)).reverse();
   const inksIn = [...INKS, DUAL].map(([n]) => n).filter((n) => priced.some((c) => inkGroup(c) === n));
   const metricTxt = avg ? "Preço médio" : "Valor total";
-  $("dist-title").textContent = `${metricTxt} por ${group === "set" ? "coleção" : group === "ink" ? "tinta" : "coleção e tinta"}`;
+  $("dist-title").textContent = `${metricTxt} por ${group === "set" ? "coleção" : group === "ink" ? "tinta" : group === "mech" ? "mechanic" : "coleção e tinta"}`;
   const wrap = $("dist-wrap");
   if (group === "set") {
     wrap.style.height = Math.max(300, setsIn.length * 24 + 60) + "px";
@@ -275,6 +289,15 @@ function renderDistribution(priced) {
       horizontal: true,
       tooltip: (i) => { const n = priced.filter((c) => c.set === setsIn[i].groupId).length; return [usd0(vals[i]), `${n} cartas · lançada em ${fmtDate(setsIn[i].publishedOn)}`]; },
       onClick: (i) => filterBy("set", setsIn[i].groupId),
+    });
+  } else if (group === "mech" && S.duels) {
+    const ks = [...new Set(priced.flatMap(mechKeys))].sort((a, b) => a - b);
+    wrap.style.height = Math.max(300, ks.length * 24 + 60) + "px";
+    const lists = ks.map((k) => priced.filter((c) => mechKeys(c).includes(k)));
+    const vals = lists.map(agg);
+    $("dist-note").textContent = "Classificação \"mechanic\" do Duels.ink. Uma carta com várias mechanics entra em todas as barras correspondentes.";
+    barChart("c-dist", ks.map(mechLabel), [{ data: vals.map(r2) }], {
+      horizontal: true, tooltip: (i) => [usd0(vals[i]), `${lists[i].length} cartas`], onClick: (i) => filterBy("mech", ks[i]),
     });
   } else if (group === "ink") {
     wrap.style.height = "380px";
@@ -320,6 +343,7 @@ function filterBy(kind, key) {
   if (kind === "set") toggle(f.sets, String(key));
   else if (kind === "rarity") { if (key && key !== "—") toggle(f.rarities, key); }
   else if (kind === "ink") { if (key === DUAL[0]) return; toggle(f.inks, key); }
+  else if (kind === "mech") toggle(f.mechs, String(key));
   else if (kind === "setink") { f.sets.clear(); f.sets.add(String(key[0])); if (key[1] !== DUAL[0]) { f.inks.clear(); f.inks.add(key[1]); } }
   changed();
 }
@@ -384,22 +408,25 @@ function renderMovers(rows) {
 /** Change of the summed value of each group (ink / rarity / set) over the selected window. */
 function renderGroupChange(rows) {
   const g = S.view.chgGroup;
-  const keyOf = g === "ink" ? inkGroup : g === "rarity" ? (c) => c.rarity : (c) => c.set;
+  const keysOf = g === "ink" ? (c) => [inkGroup(c)] : g === "rarity" ? (c) => [c.rarity] : g === "mech" ? mechKeys : (c) => [c.set];
   const acc = new Map();
   rows.forEach((c) => {
-    const k = keyOf(c); if (k == null) return;
     const x = change(c); if (!x.now || !x.then) return;
-    if (!acc.has(k)) acc.set(k, { now: 0, then: 0, pcts: [] });
-    const a = acc.get(k); a.now += x.now; a.then += x.then; a.pcts.push((x.now / x.then - 1) * 100);
+    keysOf(c).forEach((k) => {
+      if (k == null) return;
+      if (!acc.has(k)) acc.set(k, { now: 0, then: 0, pcts: [] });
+      const a = acc.get(k); a.now += x.now; a.then += x.then; a.pcts.push((x.now / x.then - 1) * 100);
+    });
   });
   let keys = [...acc.keys()];
   if (g === "ink") keys = [...INKS, DUAL].map(([n]) => n).filter((n) => acc.has(n));
   else if (g === "rarity") keys.sort((a, b) => rank(a) - rank(b));
+  else if (g === "mech") keys.sort((a, b) => a - b);
   else keys = S.sets.map((s) => s.groupId).filter((id) => acc.has(id)).reverse();
-  const label = (k) => g === "set" ? (S.setsById.get(k)?.name || k) : k;
+  const label = (k) => g === "set" ? (S.setsById.get(k)?.name || k) : g === "mech" ? mechLabel(k) : k;
   const stats = keys.map((k) => { const a = acc.get(k), v = a.pcts.sort((x, y) => x - y);
     return { pct: Math.round((a.now / a.then - 1) * 1000) / 10, med: v[Math.floor(v.length / 2)], n: v.length, now: a.now, then: a.then }; });
-  $("grpchg-title").textContent = "Variação por " + (g === "ink" ? "tinta" : g === "rarity" ? "raridade" : "coleção");
+  $("grpchg-title").textContent = "Variação por " + (g === "ink" ? "tinta" : g === "rarity" ? "raridade" : g === "mech" ? "mechanic" : "coleção");
   $("grpchg-note").textContent = `Quanto variou o valor somado das cartas de cada grupo na janela (${windowText()}), contando só cartas com preço nas duas datas. A mediana da variação por carta aparece ao passar o mouse.`;
   $("grpchg-wrap").style.height = Math.max(260, keys.length * 30 + 60) + "px";
   const pos = css("--series-1"), neg = css("--critical");
@@ -426,7 +453,7 @@ function moverTable(tbl, items) {
   });
 }
 
-function imgCell(tr, c) { const td = tr.insertCell(); if (c.img) { const im = new Image(); im.loading = "lazy"; im.src = c.img; im.alt = ""; td.append(im); } }
+function imgCell(tr, c) { const td = tr.insertCell(); if (c.img) { const im = new Image(); im.loading = "lazy"; im.onerror = () => { im.style.visibility = "hidden"; }; im.src = c.img; im.alt = ""; td.append(im); } }
 function nameCell(tr, c) {
   const td = tr.insertCell(); td.className = "name"; td.append(document.createTextNode(c.name));
   const sm = el("small", null, [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink && c.ink.replace(";", "/"), c.printing !== "Normal" ? c.printing : ""].filter(Boolean).join(" · "));
@@ -472,7 +499,8 @@ function renderCards() {
 /* ---------- detail ---------- */
 async function openDetail(c) {
   S.detail = c;
-  $("d-img").src = c.img ? c.img.replace("_200w", "_400w") : ""; $("d-img").alt = c.name;
+  const di = $("d-img"); di.style.visibility = "visible"; di.onerror = () => { di.style.visibility = "hidden"; };
+  di.src = c.img ? c.img.replace("_200w", "_400w") : ""; di.alt = c.name;
   $("d-name").textContent = c.name;
   $("d-meta").textContent = [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink && c.ink.replace(";", "/"), c.type, c.cost ? `custo ${c.cost}` : "", c.printing,
     c.core ? "Core e Infinity" : c.inf ? "Só Infinity" : "Fora dos formatos"].filter(Boolean).join(" · ");
@@ -486,6 +514,7 @@ async function openDetail(c) {
   $("d-note").textContent = c.first
     ? `Base do "desde o lançamento": ${usd(c.first[1])} em ${fmtDate(c.first[0])}${c.first[0] === S.first ? " (início do nosso histórico; a carta é anterior a fev/2024)" : " (primeiro preço a partir de 1 semana após o lançamento, para não pegar a euforia da estreia)"}. No modo mensal, o primeiro ponto é o primeiro preço registrado e os demais são o último preço de cada mês.`
     : "Ainda não há preço de 1 semana após o lançamento desta carta. No modo mensal, cada ponto é o último preço do mês.";
+  renderDetailDuels(c);
   $("detail").showModal();
   await loadHistories([c.set]);
   renderDetailChart();
@@ -503,6 +532,79 @@ function renderDetailChart() {
     dates = idx.map((i) => dates[i]); vals = idx.map((i) => vals[i]);
   }
   lineChart("c-detail", dates, vals, "Preço");
+}
+
+/* ---------- Duels.ink (private build only) ---------- */
+function duelsOf(c) { return S.duels ? S.duelsByPid.get(c.pid) || null : null; }
+function mechKeys(c) { const d = duelsOf(c); return d ? d.m : []; }
+function mechLabel(i) { const m = S.duels && S.duels.mechanics[i]; return m ? m.label : String(i); }
+const pct1 = (v) => v == null ? "–" : (v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
+const num2 = (v) => v == null ? "–" : v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function renderDetailDuels(c) {
+  const box = $("d-duels"), d = duelsOf(c);
+  box.replaceChildren(); box.hidden = !d;
+  if (!d) return;
+  box.append(el("h3", null, "Uso no ranqueado Core (Duels.ink)"));
+  if (d.m.length) box.append(el("p", "muted small", "Mechanics: " + d.m.map(mechLabel).join(" · ")));
+  const t = el("table", "t"), hr = t.createTHead().insertRow();
+  ["Expansão", "Cópias/deck", "Presença", "Vitória c/ ela na mão inicial", "Mantida no mulligan"].forEach((h, i) => hr.append(el("th", i ? "num" : "", h)));
+  const b = t.createTBody();
+  S.duels.eras.forEach((e, i) => {
+    const u = d.u[i], tr = b.insertRow();
+    tr.style.cursor = "default";
+    tr.insertCell().textContent = e.name;
+    [u && num2(u[0]), u && pct1(u[1]), u && pct1(u[2]), u && pct1(u[3])].forEach((v) => numCell(tr, v || "–"));
+  });
+  box.append(t, el("p", "muted small", "Cópias/deck é um índice relativo (as partidas sem arquétipo identificado ficam de fora). Presença = fração dos decks cujo arquétipo usa a carta."));
+}
+
+function renderMeta() {
+  if (!S.duels) return;
+  const eras = S.duels.eras, cur = eras.length - 1, prev = cur - 1;
+  // one row per Duels.ink card: use its Normal printing (or the cheapest one) for price
+  const byCard = new Map();
+  S.rows.forEach((c) => { const d = duelsOf(c); if (!d || !d.u[cur]) return;
+    const have = byCard.get(d); if (!have || (c.printing === "Normal" && have.printing !== "Normal") || (have.printing !== "Normal" && c.price < have.price)) byCard.set(d, c); });
+  const gids = [...new Set([...byCard.values()].map((c) => c.set))];
+  const ready = gids.every((g) => histNow(g));
+  if (!ready) { $("meta-note").textContent = "Carregando histórico de preços…"; loadHistories(gids).then(() => S.tab === "meta" && renderMeta()); return; }
+  const since = (c, iso) => { const h = histNow(c.set), then = h && priceAt(h, c.id, iso); return then && c.price ? Math.round((c.price / then - 1) * 1000) / 10 : null; };
+  const rows = [...byCard].map(([d, c]) => {
+    const u = d.u[cur], p = d.u[prev];
+    return { c, d, use: u[0], share: u[1], wr: u[2], dUse: p ? u[0] - p[0] : null,
+      pxCur: since(c, eras[cur].start), pxPrev: since(c, eras[prev].start) };
+  });
+  const cols = [
+    ["img", ""], ["name", "Carta"], ["use", `Cópias/deck (${eras[cur].name})`], ["dUse", `Δ vs ${eras[prev].name}`],
+    ["share", "Presença"], ["wr", "Vitória na mão inicial"], ["price", "Preço"],
+    ["pxCur", `Preço desde início da ${eras[cur].name}`], ["pxPrev", `Preço desde início da ${eras[prev].name}`],
+  ];
+  const val = (r, k) => k === "name" ? r.c.name : k === "price" ? r.c.price : r[k];
+  const { key, dir } = S.metaSort;
+  rows.sort((a, b) => { const x = val(a, key), y = val(b, key);
+    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+    return (x > y ? 1 : x < y ? -1 : 0) * dir; });
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE)); S.metaPage = Math.min(S.metaPage, pages - 1);
+  $("mp-info").textContent = `${S.metaPage + 1} / ${pages}`;
+  $("meta-count").textContent = `· ${rows.length} cartas jogadas na ${eras[cur].name}`;
+  $("meta-note").textContent = `Uso no ranqueado Core BO1 do Duels.ink por expansão (${eras[cur].name}: desde ${fmtDate(eras[cur].start)}, ${eras[cur].games.toLocaleString("pt-BR")} partidas). Uma linha por carta, com o preço da impressão normal. Respeita os filtros. Clique nos títulos para ordenar.`;
+  const tbl = $("t-meta"); tbl.replaceChildren();
+  const hr = tbl.createTHead().insertRow();
+  cols.forEach(([k, t]) => { const th = el("th", ["img", "name"].includes(k) ? "" : "num", t);
+    if (k !== "img") { th.tabIndex = 0; if (key === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending");
+      th.onclick = th.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") { S.metaSort = { key: k, dir: key === k ? -dir : (k === "name" ? 1 : -1) }; renderMeta(); } }; }
+    hr.append(th); });
+  const body = tbl.createTBody();
+  rows.slice(S.metaPage * PAGE, S.metaPage * PAGE + PAGE).forEach((r) => {
+    const tr = body.insertRow(); tr.tabIndex = 0;
+    tr.onclick = tr.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") openDetail(r.c); };
+    imgCell(tr, r.c); nameCell(tr, r.c);
+    numCell(tr, num2(r.use));
+    const du = numCell(tr, r.dUse == null ? "novo" : (r.dUse > 0 ? "+" : "") + num2(r.dUse)); if (r.dUse) du.className += r.dUse > 0 ? " up" : " down";
+    numCell(tr, pct1(r.share)); numCell(tr, pct1(r.wr)); numCell(tr, usd(r.c.price));
+    [r.pxCur, r.pxPrev].forEach((v) => { const td = numCell(tr, pctTxt(v)); if (v) td.className += v > 0 ? " up" : " down"; });
+  });
 }
 
 /* ---------- charts (Chart.js) ---------- */
