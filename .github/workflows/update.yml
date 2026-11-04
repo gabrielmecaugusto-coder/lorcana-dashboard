@@ -1,0 +1,79 @@
+name: Atualizar preços e publicar site
+
+on:
+  schedule:
+    # TCGCSV atualiza por volta das 20:00 UTC; rodamos às 21:17 UTC (18:17 em Brasília).
+    - cron: "17 21 * * *"
+  workflow_dispatch:
+    inputs:
+      full_backfill:
+        description: "Baixar o histórico completo (semanal desde fev/2024 + diário dos últimos 90 dias)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ensure 7z is available
+        run: command -v 7z || (sudo apt-get update && sudo apt-get install -y p7zip-full)
+
+      - name: Collect today's catalog and prices
+        working-directory: scripts
+        run: python fetch_daily.py
+
+      - name: Backfill history (full)
+        if: ${{ inputs.full_backfill }}
+        working-directory: scripts
+        run: python backfill.py --daily-days 90
+
+      - name: Fill recent daily gaps
+        if: ${{ !inputs.full_backfill }}
+        working-directory: scripts
+        run: python backfill.py --daily-days 7 --no-weekly
+
+      - name: Build site data
+        working-directory: scripts
+        run: python build_site_data.py
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "No data changes"
+          else
+            git commit -m "Dados de $(date -u +%F)"
+            git push
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

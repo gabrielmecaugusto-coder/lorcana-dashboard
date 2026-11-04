@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lorcana Price Dashboard</title>
+<meta name="description" content="Preços de cartas Disney Lorcana (TCGplayer): valor por coleção, média por raridade, maiores variações e histórico.">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="viz-root">
+<header class="top">
+  <div>
+    <h1>Lorcana Price Dashboard</h1>
+    <p class="muted" id="updated">Carregando dados…</p>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="overview" aria-selected="true">Visão geral</button>
+    <button role="tab" data-tab="movers">Variações</button>
+    <button role="tab" data-tab="cards">Cartas</button>
+  </nav>
+</header>
+
+<section class="filters" aria-label="Filtros">
+  <label class="f">Janela
+    <select id="f-window">
+      <option value="d1">1 dia</option>
+      <option value="d7">7 dias</option>
+      <option value="d30" selected>30 dias</option>
+      <option value="d90">90 dias</option>
+      <option value="d365">1 ano</option>
+      <option value="all">Desde o início</option>
+      <option value="custom">Personalizada…</option>
+    </select>
+  </label>
+  <span class="f custom-range" hidden>
+    <input type="date" id="f-from" aria-label="Data inicial"> até <input type="date" id="f-to" aria-label="Data final">
+  </span>
+  <label class="f">Coleção <select id="f-set"><option value="">Todas</option></select></label>
+  <div class="f inks" id="f-inks" role="group" aria-label="Cor de tinta"></div>
+  <label class="f">Raridade <select id="f-rarity"><option value="">Todas</option></select></label>
+  <label class="f">Impressão
+    <select id="f-printing">
+      <option value="">Todas</option>
+      <option value="Normal">Normal</option>
+      <option value="Holofoil">Foil</option>
+      <option value="Cold Foil">Cold Foil</option>
+    </select>
+  </label>
+  <label class="f">Preço mín. (US$) <input type="number" id="f-min" min="0" step="0.5" value="0" inputmode="decimal"></label>
+  <label class="f grow">Busca <input type="search" id="f-q" placeholder="Nome da carta"></label>
+  <button class="link" id="f-reset" type="button">Limpar</button>
+</section>
+
+<main>
+  <section id="tab-overview" class="tab">
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Cartas (impressões)</span><span class="kpi-value" id="k-count">–</span></div>
+      <div class="kpi"><span class="kpi-label">Valor total</span><span class="kpi-value" id="k-total">–</span></div>
+      <div class="kpi"><span class="kpi-label">Preço médio</span><span class="kpi-value" id="k-avg">–</span></div>
+      <div class="kpi"><span class="kpi-label">Variação do valor total</span><span class="kpi-value" id="k-change">–</span><span class="kpi-sub" id="k-change-sub"></span></div>
+    </div>
+    <div class="grid2">
+      <article class="card">
+        <h2>Valor total por coleção</h2>
+        <p class="muted small">Soma do market price de uma cópia de cada carta e impressão no filtro.</p>
+        <div class="chart" style="height:440px"><canvas id="c-sets"></canvas></div>
+      </article>
+      <article class="card">
+        <h2>Preço médio por raridade</h2>
+        <p class="muted small">Média do market price; a mediana e o número de cartas aparecem ao passar o mouse.</p>
+        <div class="chart" style="height:440px"><canvas id="c-rarity"></canvas></div>
+      </article>
+    </div>
+    <article class="card">
+      <h2>Evolução do valor total <span class="muted" id="sethist-label"></span></h2>
+      <p class="muted small">Soma dos preços das cartas da coleção selecionada (ou de todas) em cada data. Semanal até 90 dias atrás, diário depois.</p>
+      <div class="chart" style="height:300px"><canvas id="c-sethist"></canvas></div>
+    </article>
+  </section>
+
+  <section id="tab-movers" class="tab" hidden>
+    <p class="muted small" id="movers-note"></p>
+    <div class="grid2">
+      <article class="card"><h2>Maiores altas</h2><div class="table-wrap"><table class="t" id="t-up"></table></div></article>
+      <article class="card"><h2>Maiores quedas</h2><div class="table-wrap"><table class="t" id="t-down"></table></div></article>
+    </div>
+  </section>
+
+  <section id="tab-cards" class="tab" hidden>
+    <article class="card">
+      <div class="row-between"><h2>Cartas <span class="muted" id="cards-count"></span></h2>
+        <div class="pager"><button type="button" id="pg-prev">‹</button><span id="pg-info"></span><button type="button" id="pg-next">›</button></div></div>
+      <div class="table-wrap"><table class="t sortable" id="t-cards"></table></div>
+    </article>
+  </section>
+</main>
+
+<dialog id="detail">
+  <form method="dialog"><button class="close" aria-label="Fechar">×</button></form>
+  <div class="detail-body">
+    <img id="d-img" alt="">
+    <div class="detail-info">
+      <h2 id="d-name"></h2>
+      <p class="muted" id="d-meta"></p>
+      <div class="kpis small-kpis" id="d-kpis"></div>
+      <div class="row-between">
+        <h3>Histórico de preço</h3>
+        <div class="seg" role="group" aria-label="Granularidade">
+          <button type="button" data-gran="monthly" aria-pressed="true">Mensal</button>
+          <button type="button" data-gran="all" aria-pressed="false">Todos os pontos</button>
+        </div>
+      </div>
+      <div class="chart" style="height:260px"><canvas id="c-detail"></canvas></div>
+      <p><a id="d-link" target="_blank" rel="noopener">Ver no TCGplayer ↗</a></p>
+    </div>
+  </div>
+</dialog>
+
+<footer>
+  <p>Preços: market price do <a href="https://www.tcgplayer.com/" target="_blank" rel="noopener">TCGplayer</a> via <a href="https://tcgcsv.com" target="_blank" rel="noopener">TCGCSV</a>, atualizados diariamente. Histórico desde fev/2024 (semanal) e diário nos últimos 90 dias.</p>
+  <p>Site de fã, não afiliado à Disney, Ravensburger ou TCGplayer. Não é recomendação de investimento.</p>
+</footer>
+</div>
+</body>
+</html>
