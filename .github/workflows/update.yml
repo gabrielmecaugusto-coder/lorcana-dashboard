@@ -35,15 +35,12 @@ jobs:
         working-directory: scripts
         run: python fetch_daily.py
 
-      - name: Backfill history (full)
-        if: ${{ inputs.full_backfill }}
+      # Fetches only archive dates we don't have yet. Normal runs take at most 40 archives,
+      # so an unfinished history completes over the next days without hammering TCGCSV.
+      - name: Backfill missing history
+        continue-on-error: true
         working-directory: scripts
-        run: python backfill.py --daily-days 90
-
-      - name: Fill recent daily gaps
-        if: ${{ !inputs.full_backfill }}
-        working-directory: scripts
-        run: python backfill.py --daily-days 7 --no-weekly
+        run: python backfill.py --daily-days 90 ${{ inputs.full_backfill && '' || '--max 40' }}
 
       - name: Build site data
         working-directory: scripts

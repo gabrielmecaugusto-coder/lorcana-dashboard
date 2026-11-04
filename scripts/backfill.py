@@ -16,11 +16,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 from datetime import date, timedelta
 from pathlib import Path
 
-from common import CATEGORY_ID, TCGCSV, http_get, snapshot_dates, write_snapshot
+from common import CATEGORY_ID, DATA, TCGCSV, http_get, snapshot_dates, write_snapshot
+
+MISSING_FILE = DATA / "archive_missing.txt"  # archive dates that returned 404 (not retried)
 
 ARCHIVE_START = date(2024, 2, 8)
 
@@ -60,6 +63,7 @@ def main() -> int:
     ap.add_argument("--daily-days", type=int, default=90)
     ap.add_argument("--max", type=int, default=0, help="stop after N downloads (0 = no limit)")
     ap.add_argument("--no-weekly", action="store_true", help="only fill recent daily gaps")
+    ap.add_argument("--pause", type=float, default=4.0, help="seconds between archive downloads")
     args = ap.parse_args()
 
     if not shutil.which("7z"):
@@ -67,18 +71,30 @@ def main() -> int:
         return 1
 
     have = set(snapshot_dates())
-    todo = [d for d in wanted_dates(date.today(), args.daily_days, weekly=not args.no_weekly) if d.isoformat() not in have]
+    missing = set(MISSING_FILE.read_text().split()) if MISSING_FILE.exists() else set()
+    todo = [d for d in wanted_dates(date.today(), args.daily_days, weekly=not args.no_weekly)
+            if d.isoformat() not in have and d.isoformat() not in missing]
     print(f"{len(todo)} archive dates to fetch ({len(have)} snapshots already present)")
 
     done = 0
     for d in todo:
         day = d.isoformat()
         url = f"{TCGCSV}/archive/tcgplayer/prices-{day}.ppmd.7z"
+        if done:
+            time.sleep(args.pause)  # be gentle with TCGCSV's bandwidth
         try:
             blob = http_get(url, binary=True, timeout=180)
         except urllib.error.HTTPError as e:
             print(f"  {day}: HTTP {e.code}, skipped")
+            if e.code == 404 and d < date.today() - timedelta(days=3):
+                missing.add(day)
+                MISSING_FILE.write_text("\n".join(sorted(missing)) + "\n")
             continue
+        except RuntimeError as e:
+            # Persistent failure (e.g. still rate limited): stop cleanly so what we have gets
+            # committed; the next run continues from here.
+            print(f"  {day}: {e}; stopping, will resume next run")
+            break
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             arc = tmp / "a.7z"

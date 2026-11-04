@@ -40,6 +40,11 @@ def http_get(url: str, *, binary: bool = False, retries: int = 4, timeout: int =
             if e.code == 404:
                 raise
             last_err = e
+            if e.code == 429:  # rate limited: honour Retry-After, then try again
+                wait = int(e.headers.get("Retry-After") or 0) or 60 * (attempt + 1)
+                print(f"    rate limited, waiting {wait}s")
+                time.sleep(min(wait, 300))
+                continue
         except Exception as e:  # network hiccup
             last_err = e
         time.sleep(2 ** attempt)

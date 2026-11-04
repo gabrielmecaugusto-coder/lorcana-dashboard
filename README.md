@@ -17,7 +17,7 @@ Dashboard público de preços de cartas **Disney Lorcana**, com base no market p
 ## Como funciona
 O workflow `.github/workflows/update.yml` roda todo dia às 21:17 UTC:
 1. `scripts/fetch_daily.py` baixa o catálogo e os preços do dia e salva em `data/catalog.json` e `data/prices/AAAA-MM-DD.csv.gz`.
-2. `scripts/backfill.py` preenche dias que faltaram (ou, rodando manualmente com `full_backfill`, baixa o histórico completo).
+2. `scripts/backfill.py` baixa as datas do histórico que ainda faltam (até 40 arquivos por execução, com pausa entre downloads; rodando manualmente com `full_backfill`, sem limite).
 3. `scripts/build_site_data.py` gera os JSONs do site em `site/data/` (não versionados).
 4. Os dados novos são commitados e o site é publicado no GitHub Pages.
 
