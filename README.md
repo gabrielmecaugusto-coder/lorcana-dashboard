@@ -5,10 +5,14 @@ Dashboard público de preços de cartas **Disney Lorcana**, com base no market p
 **Site:** https://gabrielmecaugusto-coder.github.io/lorcana-dashboard/
 
 ## O que mostra
-- Valor total por coleção e preço médio por raridade
-- Maiores altas e quedas em 1 dia, 7 dias, 30 dias, 90 dias, 1 ano, desde o início ou entre duas datas escolhidas
+- Evolução do valor total ou do preço médio no tempo, com marcação de lançamentos de coleção e rotações do Core
+- Valor total ou preço médio por coleção, por tinta ou por coleção × tinta; preço médio por raridade
+- Ranking das 5 cartas mais caras de cada tinta
+- Maiores altas e quedas em 1 dia, 7 dias, 30 dias, 90 dias, 1 ano, desde o 1º preço ou entre duas datas escolhidas
 - Histórico de preço de cada carta (mensal ou todos os pontos)
-- Filtros por coleção, cor de tinta, raridade, impressão (normal, foil, cold foil), preço mínimo e nome
+- Filtros por formato (Core/Infinity), coleções e raridades (várias ao mesmo tempo), cor de tinta, impressão, preço mínimo e nome
+
+Rotações, coleções legais no Core e cartas banidas ficam em `scripts/formats.py`, que precisa ser atualizado a cada rotação ou mudança na lista de banidas.
 
 ## De onde vêm os dados
 - **Preços e catálogo:** [TCGCSV](https://tcgcsv.com), espelho público diário da API do TCGplayer (Lorcana = categoria 71).

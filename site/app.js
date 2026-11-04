@@ -2,27 +2,36 @@
 "use strict";
 
 const INKS = [
-  ["Amber", "#f2b51c"], ["Amethyst", "#8a4fb5"], ["Emerald", "#2e9e53"],
-  ["Ruby", "#d23a3a"], ["Sapphire", "#2f7fd1"], ["Steel", "#8f979e"],
+  ["Amber", "#e0a400"], ["Amethyst", "#8a4fb5"], ["Emerald", "#2e9e53"],
+  ["Ruby", "#d23a3a"], ["Sapphire", "#2f7fd1"], ["Steel", "#8a929a"],
 ];
-const RARITY_ORDER = ["Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", "Iconic", "Promo"];
-const WINDOW_LABEL = { d1: "1 dia", d7: "7 dias", d30: "30 dias", d90: "90 dias", d365: "1 ano", all: "desde o início" };
+const DUAL = ["Duas tintas", "#4f4e49"];
+const INK_COLOR = Object.fromEntries([...INKS, DUAL]);
+const RARITY_ORDER = ["Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", "Iconic", "Promo", "Quest"];
+const WINDOW_LABEL = { d1: "1 dia", d7: "7 dias", d30: "30 dias", d90: "90 dias", d365: "1 ano", all: "desde o 1º preço" };
 const MOVERS_MIN_PRICE = 1; // ignore penny cards in the movers lists (noise)
+const CARRY_DAYS = 7;       // a missing price is carried forward at most this long in time series
 const PAGE = 50;
 
 const S = {
-  cards: [], sets: [], setsById: new Map(), setHist: null, latest: null, first: null,
-  histories: new Map(), // groupId -> {dates, s}
-  filter: { window: "d30", from: "", to: "", set: "", inks: new Set(), rarity: "", printing: "", min: 0, q: "" },
-  sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, gran: "monthly",
+  cards: [], sets: [], setsById: new Map(), events: { releases: [], rotations: [] }, latest: null, first: null,
+  histories: new Map(),
+  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), printing: "", min: 0, q: "" },
+  view: { evoMetric: "total", group: "set", distMetric: "total", gran: "monthly", ev: { rel: true, rot: true } },
+  sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
 const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const usd = (v, d = 2) => v == null ? "–" : "US$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const usd0 = (v) => usd(v, v >= 1000 ? 0 : 2);
 const pctTxt = (v) => v == null ? "–" : (v > 0 ? "▲ +" : v < 0 ? "▼ " : "") + v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
-const fmtDate = (iso) => iso ? new Date(iso + "T12:00:00Z").toLocaleDateString("pt-BR") : "–";
+const fmtDate = (iso) => iso ? new Date(iso.slice(0, 10) + "T12:00:00Z").toLocaleDateString("pt-BR") : "–";
 const css = (name) => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(name).trim();
+const inkList = (c) => (c.ink ? c.ink.split(/[;\/,]\s*/) : []);
+const inkGroup = (c) => { const l = inkList(c); return l.length === 1 ? l[0] : l.length > 1 ? DUAL[0] : null; };
+const rank = (r) => { const i = RARITY_ORDER.indexOf(r); return i < 0 ? 99 : i; };
+const day = (iso) => Math.round(Date.parse(iso.slice(0, 10) + "T12:00:00Z") / 864e5);
 
 async function getJSON(path) {
   const r = await fetch(path, { cache: "no-cache" });
@@ -31,79 +40,127 @@ async function getJSON(path) {
 }
 
 async function init() {
-  const [cards, sets, setHist] = await Promise.all([
-    getJSON("data/cards.json"), getJSON("data/sets.json"), getJSON("data/set_history.json"),
-  ]);
-  S.cards = cards.cards;
-  S.latest = cards.latest; S.first = cards.firstSnapshot;
+  const [cards, sets, events] = await Promise.all([getJSON("data/cards.json"), getJSON("data/sets.json"), getJSON("data/events.json")]);
+  S.cards = cards.cards; S.latest = cards.latest; S.first = cards.firstSnapshot; S.events = events;
   S.sets = sets.filter((s) => s.cards > 0);
   S.sets.forEach((s) => S.setsById.set(s.groupId, s));
-  S.setHist = setHist;
   $("updated").textContent = `Preços de ${fmtDate(S.latest)} · ${S.cards.length.toLocaleString("pt-BR")} cartas/impressões · histórico desde ${fmtDate(S.first)}`;
   buildFilters();
   readHash();
   render();
 }
 
+/* ---------- multi-select ---------- */
+function multiSelect(root, options, selected, allLabel, onChange) {
+  const btn = el("button"); btn.type = "button"; btn.setAttribute("aria-haspopup", "true");
+  const pop = el("div", "pop"); pop.hidden = true;
+  const boxes = options.map(([value, label]) => {
+    const lab = el("label"), cb = el("input"); cb.type = "checkbox"; cb.value = value;
+    cb.onchange = () => { cb.checked ? selected.add(value) : selected.delete(value); sync(); onChange(); };
+    lab.append(cb, document.createTextNode(label)); pop.append(lab); return cb;
+  });
+  const actions = el("div", "ms-actions");
+  const clear = el("button", "link", "Limpar"); clear.type = "button";
+  clear.onclick = () => { selected.clear(); sync(); onChange(); };
+  const close = el("button", "link", "Fechar"); close.type = "button"; close.onclick = () => { pop.hidden = true; };
+  actions.append(clear, close); pop.append(actions);
+  btn.onclick = (e) => { e.stopPropagation(); const open = pop.hidden; document.querySelectorAll(".ms .pop").forEach((p) => p.hidden = true); pop.hidden = !open; };
+  pop.onclick = (e) => e.stopPropagation();
+  root.replaceChildren(btn, pop);
+  function sync() {
+    boxes.forEach((cb) => cb.checked = selected.has(cb.value));
+    const n = selected.size;
+    btn.textContent = n === 0 ? allLabel : n === 1 ? options.find(([v]) => selected.has(v))[1] : `${n} selecionadas`;
+  }
+  sync();
+  return { sync };
+}
+document.addEventListener("click", () => document.querySelectorAll(".ms .pop").forEach((p) => p.hidden = true));
+
 /* ---------- filters ---------- */
 function buildFilters() {
-  const setSel = $("f-set");
-  [...S.sets].reverse().forEach((s) => setSel.add(new Option(`${s.name} (${s.abbreviation})`, s.groupId)));
-  const rar = new Set(S.cards.map((c) => c.rarity).filter(Boolean));
-  const rarSorted = [...rar].sort((a, b) => rank(a) - rank(b));
-  rarSorted.forEach((r) => $("f-rarity").add(new Option(r, r)));
-  const wrap = $("f-inks");
+  const f = S.filter;
+  S.ms.sets = multiSelect($("f-set"), [...S.sets].reverse().map((s) => [String(s.groupId), `${s.name} (${s.abbreviation})`]), f.sets, "Todas", changed);
+  const rar = [...new Set(S.cards.map((c) => c.rarity).filter(Boolean))].sort((a, b) => rank(a) - rank(b));
+  S.ms.rarities = multiSelect($("f-rarity"), rar.map((r) => [r, r]), f.rarities, "Todas", changed);
   INKS.forEach(([name, color]) => {
-    const b = document.createElement("button");
-    b.type = "button"; b.className = "ink"; b.setAttribute("aria-pressed", "false"); b.dataset.ink = name;
-    const dot = document.createElement("i"); dot.style.background = color;
+    const b = el("button", "ink"); b.type = "button"; b.setAttribute("aria-pressed", "false"); b.dataset.ink = name;
+    const dot = el("i"); dot.style.background = color;
     b.append(dot, document.createTextNode(name));
-    b.onclick = () => { const on = S.filter.inks.has(name); on ? S.filter.inks.delete(name) : S.filter.inks.add(name); changed(); };
-    wrap.append(b);
+    b.onclick = () => { f.inks.has(name) ? f.inks.delete(name) : f.inks.add(name); changed(); };
+    $("f-inks").append(b);
   });
   $("f-from").min = $("f-to").min = S.first; $("f-from").max = $("f-to").max = S.latest;
-  const bind = (id, key, ev = "change", map = (v) => v) => $(id).addEventListener(ev, (e) => { S.filter[key] = map(e.target.value); changed(); });
-  bind("f-window", "window"); bind("f-from", "from"); bind("f-to", "to"); bind("f-set", "set");
-  bind("f-rarity", "rarity"); bind("f-printing", "printing"); bind("f-min", "min", "input", (v) => +v || 0);
+  const bind = (id, key, ev = "change", map = (v) => v) => $(id).addEventListener(ev, (e) => { f[key] = map(e.target.value); changed(); });
+  bind("f-window", "window"); bind("f-from", "from"); bind("f-to", "to"); bind("f-format", "format");
+  bind("f-printing", "printing"); bind("f-min", "min", "input", (v) => +v || 0);
   bind("f-q", "q", "input", (v) => v.trim().toLowerCase());
-  $("f-reset").onclick = () => { S.filter = { ...S.filter, set: "", inks: new Set(), rarity: "", printing: "", min: 0, q: "" }; syncControls(); changed(); };
+  $("f-reset").onclick = () => {
+    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear();
+    changed();
+  };
   document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; changed(); });
   $("pg-prev").onclick = () => { S.page = Math.max(0, S.page - 1); renderCards(); };
   $("pg-next").onclick = () => { S.page++; renderCards(); };
-  document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => { S.gran = b.dataset.gran; renderDetailChart(); });
+  // view controls (segmented buttons + event checkboxes); they don't change the filter, only the chart
+  document.querySelectorAll(".seg[data-ctl]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.onclick = () => {
+    S.view[g.dataset.ctl] = b.dataset.v; syncView(); writeHash();
+    if (g.dataset.ctl === "gran") renderDetailChart(); else if (g.closest("#detail")) renderDetailChart(); else render();
+  }));
+  document.querySelectorAll("input[data-ev]").forEach((cb) => cb.onchange = () => {
+    S.view.ev[cb.dataset.ev] = cb.checked; syncView(); writeHash();
+    if (cb.closest("#detail")) renderDetailChart(); else renderEvolution();
+  });
 }
-const rank = (r) => { const i = RARITY_ORDER.indexOf(r); return i < 0 ? 99 : i; };
 
 function syncControls() {
   const f = S.filter;
-  $("f-window").value = f.window; $("f-from").value = f.from; $("f-to").value = f.to; $("f-set").value = f.set;
-  $("f-rarity").value = f.rarity; $("f-printing").value = f.printing; $("f-min").value = f.min; $("f-q").value = f.q;
+  $("f-window").value = f.window; $("f-from").value = f.from; $("f-to").value = f.to; $("f-format").value = f.format;
+  $("f-printing").value = f.printing; $("f-min").value = f.min; $("f-q").value = f.q;
+  S.ms.sets.sync(); S.ms.rarities.sync();
   document.querySelectorAll(".ink").forEach((b) => b.setAttribute("aria-pressed", f.inks.has(b.dataset.ink)));
   document.querySelector(".custom-range").hidden = f.window !== "custom";
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === S.tab));
   document.querySelectorAll(".tab").forEach((t) => t.hidden = t.id !== "tab-" + S.tab);
+  syncView();
+}
+function syncView() {
+  document.querySelectorAll(".seg[data-ctl]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", S.view[g.dataset.ctl] === b.dataset.v)));
+  document.querySelectorAll("input[data-ev]").forEach((cb) => cb.checked = S.view.ev[cb.dataset.ev]);
 }
 
 function writeHash() {
-  const f = S.filter, p = new URLSearchParams();
+  const f = S.filter, v = S.view, p = new URLSearchParams();
   if (S.tab !== "overview") p.set("tab", S.tab);
   if (f.window !== "d30") p.set("w", f.window);
   if (f.window === "custom") { p.set("from", f.from); p.set("to", f.to); }
-  if (f.set) p.set("set", f.set);
+  if (f.format) p.set("fmt", f.format);
+  if (f.sets.size) p.set("set", [...f.sets].join(","));
   if (f.inks.size) p.set("ink", [...f.inks].join(","));
-  if (f.rarity) p.set("rar", f.rarity);
+  if (f.rarities.size) p.set("rar", [...f.rarities].join(","));
   if (f.printing) p.set("pr", f.printing);
   if (f.min) p.set("min", f.min);
   if (f.q) p.set("q", f.q);
+  if (v.evoMetric !== "total") p.set("evo", v.evoMetric);
+  if (v.group !== "set") p.set("grp", v.group);
+  if (v.distMetric !== "total") p.set("dm", v.distMetric);
+  if (!v.ev.rel) p.set("norel", 1);
+  if (!v.ev.rot) p.set("norot", 1);
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
 }
 function readHash() {
-  const p = new URLSearchParams(location.hash.slice(1)), f = S.filter;
+  const p = new URLSearchParams(location.hash.slice(1)), f = S.filter, v = S.view;
+  const list = (k) => (p.get(k) || "").split(",").filter(Boolean);
   S.tab = p.get("tab") || "overview";
   f.window = p.get("w") || "d30"; f.from = p.get("from") || ""; f.to = p.get("to") || "";
-  f.set = p.get("set") || ""; f.inks = new Set((p.get("ink") || "").split(",").filter(Boolean));
-  f.rarity = p.get("rar") || ""; f.printing = p.get("pr") || ""; f.min = +(p.get("min") || 0); f.q = p.get("q") || "";
-  if (f.window === "custom" && !f.from) { f.from = S.first; f.to = S.latest; }
+  f.format = p.get("fmt") || "";
+  f.sets.clear(); list("set").forEach((x) => f.sets.add(x));
+  f.inks.clear(); list("ink").forEach((x) => f.inks.add(x));
+  f.rarities.clear(); list("rar").forEach((x) => f.rarities.add(x));
+  f.printing = p.get("pr") || ""; f.min = +(p.get("min") || 0); f.q = p.get("q") || "";
+  v.evoMetric = p.get("evo") || "total"; v.group = p.get("grp") || "set"; v.distMetric = p.get("dm") || "total";
+  v.ev.rel = !p.get("norel"); v.ev.rot = !p.get("norot");
+  if (f.window === "custom" && !f.from) { f.from = addDays(S.latest, -30); f.to = S.latest; }
   syncControls();
 }
 
@@ -113,20 +170,24 @@ async function changed() {
   if (f.window === "custom" && (!f.from || !f.to)) { f.from = f.from || addDays(S.latest, -30); f.to = f.to || S.latest; }
   S.page = 0; syncControls(); writeHash();
   const my = ++pending;
-  document.querySelector("main").style.opacity = 0.6;
-  if (f.window === "custom") await loadHistories(filteredSets());
-  if (my !== pending) return;
-  document.querySelector("main").style.opacity = 1;
+  if (f.window === "custom") {
+    document.querySelector("main").style.opacity = 0.6;
+    await loadHistories(selectedSetIds());
+    if (my !== pending) return;
+    document.querySelector("main").style.opacity = 1;
+  }
   render();
 }
 function addDays(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
-function filteredSets() { return S.filter.set ? [+S.filter.set] : S.sets.map((s) => s.groupId); }
+function selectedSetIds() { return S.filter.sets.size ? [...S.filter.sets].map(Number) : S.sets.map((s) => s.groupId); }
 
 function passes(c) {
   const f = S.filter;
-  if (f.set && c.set !== +f.set) return false;
-  if (f.inks.size && !(c.ink && c.ink.split(/[;\/,]\s*/).some((i) => f.inks.has(i)))) return false;
-  if (f.rarity && c.rarity !== f.rarity) return false;
+  if (f.format === "core" && !c.core) return false;
+  if (f.format === "infinity" && !c.inf) return false;
+  if (f.sets.size && !f.sets.has(String(c.set))) return false;
+  if (f.inks.size && !inkList(c).some((i) => f.inks.has(i))) return false;
+  if (f.rarities.size && !f.rarities.has(c.rarity)) return false;
   if (f.printing && c.printing !== f.printing) return false;
   if (f.min && !(c.price >= f.min)) return false;
   if (f.q && !c.name.toLowerCase().includes(f.q)) return false;
@@ -134,29 +195,32 @@ function passes(c) {
 }
 
 /* ---------- history ---------- */
-async function loadHistory(gid) {
-  if (!S.histories.has(gid)) S.histories.set(gid, getJSON(`data/history/${gid}.json`));
+function loadHistory(gid) {
+  if (!S.histories.has(gid)) S.histories.set(gid, getJSON(`data/history/${gid}.json`).then((h) => { h.days = h.dates.map(day); return h; }));
   return S.histories.get(gid);
 }
-async function loadHistories(gids) { await Promise.all(gids.map(loadHistory)); for (const g of gids) S.histories.set(g, await S.histories.get(g)); }
+async function loadHistories(gids) { const hs = await Promise.all(gids.map(loadHistory)); gids.forEach((g, i) => S.histories.set(g, hs[i])); return hs; }
+const histNow = (gid) => { const h = S.histories.get(gid); return h && !(h instanceof Promise) ? h : null; };
 
 function priceAt(h, key, iso) {
   const arr = h.s[key]; if (!arr) return null;
+  const target = day(iso);
   let i = h.dates.length - 1;
-  while (i >= 0 && h.dates[i] > iso) i--;
-  for (let k = i; k >= 0 && k > i - 8; k--) if (arr[k]) return arr[k];
+  while (i >= 0 && h.days[i] > target) i--;
+  for (let k = i; k >= 0 && target - h.days[k] <= CARRY_DAYS; k--) if (arr[k]) return arr[k];
   return null;
 }
 
 /** Window change for a card: {then, now, pct} */
 function change(c) {
   const f = S.filter;
+  if (f.window === "all") return { now: c.price, then: c.first ? c.first[1] : null, pct: c.ch.all };
   if (f.window !== "custom") {
     const p = c.ch[f.window];
     return { now: c.price, pct: p, then: p == null || !c.price ? null : c.price / (1 + p / 100) };
   }
-  const h = S.histories.get(c.set);
-  if (!h || h instanceof Promise) return { now: null, then: null, pct: null };
+  const h = histNow(c.set);
+  if (!h) return { now: null, then: null, pct: null };
   const then = priceAt(h, c.id, f.from), now = priceAt(h, c.id, f.to);
   return { then, now, pct: then && now ? Math.round((now / then - 1) * 1000) / 10 : null };
 }
@@ -167,10 +231,9 @@ function windowText() {
 
 /* ---------- render ---------- */
 function render() {
-  const rows = S.cards.filter(passes);
-  S.rows = rows;
-  if (S.tab === "overview") renderOverview(rows);
-  if (S.tab === "movers") renderMovers(rows);
+  S.rows = S.cards.filter(passes);
+  if (S.tab === "overview") renderOverview(S.rows);
+  if (S.tab === "movers") renderMovers(S.rows);
   if (S.tab === "cards") renderCards();
 }
 
@@ -187,44 +250,123 @@ function renderOverview(rows) {
   kc.className = "kpi-value " + (p > 0 ? "up" : p < 0 ? "down" : "");
   $("k-change-sub").textContent = windowText() + " · cartas com preço nas duas datas";
 
-  // Set totals (horizontal bars, release order)
-  const bySet = new Map();
-  priced.forEach((c) => bySet.set(c.set, (bySet.get(c.set) || 0) + c.price));
-  const setRows = S.sets.filter((s) => bySet.has(s.groupId)).reverse();
-  barChart("c-sets", setRows.map((s) => s.name), setRows.map((s) => Math.round(bySet.get(s.groupId) * 100) / 100), {
-    horizontal: true,
-    tooltip: (i) => [`${usd0(setRows[i] && bySet.get(setRows[i].groupId))}`, `${priced.filter((c) => c.set === setRows[i].groupId).length} cartas · lançada em ${fmtDate(setRows[i].publishedOn)}`],
-  });
+  renderDistribution(priced);
+  renderRarity(priced);
+  renderInkRank(priced);
+  renderEvolution();
+}
 
-  // Rarity averages
+function renderDistribution(priced) {
+  const { group, distMetric } = S.view, avg = distMetric === "avg";
+  const agg = (list) => { const s = list.reduce((a, c) => a + c.price, 0); return avg ? (list.length ? s / list.length : null) : s; };
+  const r2 = (v) => v == null ? null : Math.round(v * 100) / 100;
+  const setsIn = S.sets.filter((s) => priced.some((c) => c.set === s.groupId)).reverse();
+  const inksIn = [...INKS, DUAL].map(([n]) => n).filter((n) => priced.some((c) => inkGroup(c) === n));
+  const metricTxt = avg ? "Preço médio" : "Valor total";
+  $("dist-title").textContent = `${metricTxt} por ${group === "set" ? "coleção" : group === "ink" ? "tinta" : "coleção e tinta"}`;
+  const wrap = $("dist-wrap");
+  if (group === "set") {
+    wrap.style.height = Math.max(300, setsIn.length * 24 + 60) + "px";
+    const vals = setsIn.map((s) => agg(priced.filter((c) => c.set === s.groupId)));
+    $("dist-note").textContent = avg ? "Média do market price das cartas no filtro, por coleção." : "Soma do market price de uma cópia de cada carta e impressão no filtro.";
+    barChart("c-dist", setsIn.map((s) => s.name), [{ data: vals.map(r2) }], {
+      horizontal: true,
+      tooltip: (i) => { const n = priced.filter((c) => c.set === setsIn[i].groupId).length; return [usd0(vals[i]), `${n} cartas · lançada em ${fmtDate(setsIn[i].publishedOn)}`]; },
+    });
+  } else if (group === "ink") {
+    wrap.style.height = "380px";
+    const vals = inksIn.map((n) => agg(priced.filter((c) => inkGroup(c) === n)));
+    $("dist-note").textContent = "Cartas de duas tintas ficam numa barra própria. Use o filtro de coleção para comparar coleções específicas.";
+    barChart("c-dist", inksIn, [{ data: vals.map(r2), backgroundColor: inksIn.map((n) => INK_COLOR[n]) }], {
+      horizontal: true,
+      tooltip: (i) => [usd0(vals[i]), `${priced.filter((c) => inkGroup(c) === inksIn[i]).length} cartas`],
+    });
+  } else {
+    wrap.style.height = Math.max(340, setsIn.length * (avg ? 46 : 24) + 90) + "px";
+    $("dist-note").textContent = avg ? "Preço médio de cada tinta dentro de cada coleção (barras lado a lado)." : "Valor total de cada coleção dividido por tinta (barras empilhadas).";
+    const datasets = inksIn.map((n) => ({
+      label: n, backgroundColor: INK_COLOR[n],
+      data: setsIn.map((s) => r2(agg(priced.filter((c) => c.set === s.groupId && inkGroup(c) === n)))),
+    }));
+    barChart("c-dist", setsIn.map((s) => s.name), datasets, {
+      horizontal: true, stacked: !avg, legend: true,
+      tooltip: (i, ds) => `${datasets[ds].label}: ${usd0(datasets[ds].data[i])}`,
+    });
+  }
+}
+
+function renderRarity(priced) {
   const byR = new Map();
   priced.forEach((c) => { const r = c.rarity || "—"; if (!byR.has(r)) byR.set(r, []); byR.get(r).push(c.price); });
   const rk = [...byR.keys()].sort((a, b) => rank(a) - rank(b));
-  const stats = rk.map((r) => { const v = byR.get(r).sort((a, b) => a - b); return { r, avg: v.reduce((a, b) => a + b, 0) / v.length, med: v[Math.floor(v.length / 2)], n: v.length }; });
-  barChart("c-rarity", rk, stats.map((s) => Math.round(s.avg * 100) / 100), {
-    log: stats.length > 1 && Math.max(...stats.map((s) => s.avg)) / Math.max(0.01, Math.min(...stats.map((s) => s.avg))) > 50,
+  const stats = rk.map((r) => { const v = byR.get(r).sort((a, b) => a - b); return { avg: v.reduce((a, b) => a + b, 0) / v.length, med: v[Math.floor(v.length / 2)], n: v.length }; });
+  const avgs = stats.map((s) => s.avg);
+  barChart("c-rarity", rk, [{ data: avgs.map((v) => Math.round(v * 100) / 100) }], {
+    log: avgs.length > 1 && Math.max(...avgs) / Math.max(0.01, Math.min(...avgs)) > 50,
     tooltip: (i) => [`Média ${usd(stats[i].avg)}`, `Mediana ${usd(stats[i].med)} · ${stats[i].n} cartas`],
   });
+}
 
-  // Set value history
-  const h = S.setHist, gids = filteredSets().map(String);
-  const vals = h.dates.map((_, i) => { let s = 0, any = false; gids.forEach((g) => { const v = h.sets[g] && h.sets[g][i]; if (v) { s += v; any = true; } }); return any ? Math.round(s) : null; });
-  $("sethist-label").textContent = S.filter.set ? "· " + S.setsById.get(+S.filter.set).name : "· todas as coleções";
-  lineChart("c-sethist", h.dates, vals, "Valor total");
+function renderInkRank(priced) {
+  const root = $("ink-rank"); root.replaceChildren();
+  INKS.forEach(([ink, color]) => {
+    const col = el("div", "ink-col"), h = el("h3"), dot = el("i"); dot.style.background = color;
+    h.append(dot, document.createTextNode(ink)); col.append(h);
+    const top = priced.filter((c) => inkList(c).includes(ink)).sort((a, b) => b.price - a.price).slice(0, 5);
+    const ol = el("ol");
+    if (!top.length) ol.append(el("li", "muted", "Nenhuma carta no filtro"));
+    top.forEach((c, i) => {
+      const li = el("li"); li.tabIndex = 0;
+      li.onclick = li.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") openDetail(c); };
+      const im = new Image(); im.loading = "lazy"; im.alt = ""; if (c.img) im.src = c.img;
+      const nm = el("div", null, `${i + 1}. ${c.name}`);
+      nm.append(el("small", null, [c.setCode && (/^\d+$/.test(c.setCode) ? "S" + c.setCode : c.setCode), c.rarity, c.printing !== "Normal" ? c.printing : ""].filter(Boolean).join(" · ")));
+      nm.append(el("b", null, usd0(c.price)));
+      li.append(im, nm); ol.append(li);
+    });
+    col.append(ol); root.append(col);
+  });
+}
+
+let evoToken = 0;
+async function renderEvolution() {
+  const my = ++evoToken, rows = S.rows;
+  const gids = [...new Set(rows.map((c) => c.set))];
+  const canvas = $("c-evo"); canvas.style.opacity = 0.5;
+  const hs = await loadHistories(gids.length ? gids : [S.sets[0].groupId]);
+  if (my !== evoToken) return;
+  canvas.style.opacity = 1;
+  const base = hs[0], n = base.dates.length;
+  const sum = new Float64Array(n), cnt = new Uint32Array(n);
+  rows.forEach((c) => {
+    const h = histNow(c.set), arr = h && h.s[c.id]; if (!arr) return;
+    let last = null, lastDay = -1e9;
+    for (let i = 0; i < n; i++) {
+      if (arr[i]) { last = arr[i]; lastDay = h.days[i]; }
+      if (last != null && h.days[i] - lastDay <= CARRY_DAYS) { sum[i] += last; cnt[i]++; }
+    }
+  });
+  const avg = S.view.evoMetric === "avg";
+  const vals = [...sum].map((s, i) => cnt[i] ? Math.round((avg ? s / cnt[i] : s) * 100) / 100 : null);
+  $("evo-note").textContent = (avg
+    ? "Preço médio das cartas no filtro em cada data. A média muda também quando entram coleções novas."
+    : "Soma dos preços das cartas no filtro em cada data. Sobe também quando entram coleções novas.") + " Semanal até 90 dias atrás, diário depois.";
+  lineChart("c-evo", base.dates, vals, avg ? "Preço médio" : "Valor total", { counts: [...cnt] });
 }
 
 function renderMovers(rows) {
   const list = rows.map((c) => ({ c, x: change(c) })).filter((o) => o.x.pct != null && o.x.now >= MOVERS_MIN_PRICE);
   const up = list.filter((o) => o.x.pct > 0).sort((a, b) => b.x.pct - a.x.pct).slice(0, 25);
   const down = list.filter((o) => o.x.pct < 0).sort((a, b) => a.x.pct - b.x.pct).slice(0, 25);
-  $("movers-note").textContent = `Janela: ${windowText()}. Só cartas com preço atual a partir de ${usd(MOVERS_MIN_PRICE)}, para evitar ruído de cartas de centavos. ${list.length} cartas com preço nas duas datas.`;
+  const extra = S.filter.window === "all" ? " \"Antes\" é o primeiro preço registrado da carta: na semana de lançamento (ou em fev/2024, para coleções mais antigas), quando o preço costuma estar inflado." : "";
+  $("movers-note").textContent = `Janela: ${windowText()}. Só cartas com preço atual a partir de ${usd(MOVERS_MIN_PRICE)}, para evitar ruído de cartas de centavos. ${list.length} cartas com preço nas duas datas.${extra}`;
   moverTable($("t-up"), up); moverTable($("t-down"), down);
 }
 
 function moverTable(tbl, items) {
   tbl.replaceChildren();
   const head = tbl.createTHead().insertRow();
-  [["", ""], ["Carta", ""], ["Antes", "num"], ["Agora", "num"], ["Variação", "num"]].forEach(([t, cl]) => { const th = document.createElement("th"); th.textContent = t; th.className = cl; head.append(th); });
+  [["", ""], ["Carta", ""], ["Antes", "num"], ["Agora", "num"], ["Variação", "num"]].forEach(([t, cl]) => { const th = el("th", cl, t); head.append(th); });
   const body = tbl.createTBody();
   if (!items.length) { const td = body.insertRow().insertCell(); td.colSpan = 5; td.textContent = "Nenhuma carta no filtro."; td.className = "muted"; }
   items.forEach(({ c, x }) => {
@@ -239,8 +381,9 @@ function moverTable(tbl, items) {
 function imgCell(tr, c) { const td = tr.insertCell(); if (c.img) { const im = new Image(); im.loading = "lazy"; im.src = c.img; im.alt = ""; td.append(im); } }
 function nameCell(tr, c) {
   const td = tr.insertCell(); td.className = "name"; td.append(document.createTextNode(c.name));
-  const sm = document.createElement("small");
-  sm.textContent = [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink, c.printing !== "Normal" ? c.printing : ""].filter(Boolean).join(" · ");
+  const sm = el("small", null, [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink && c.ink.replace(";", "/"), c.printing !== "Normal" ? c.printing : ""].filter(Boolean).join(" · "));
+  if (c.core) sm.append(el("span", "badge", "Core"));
+  if (c.inf) sm.append(el("span", "badge", "Infinity"));
   td.append(sm);
 }
 function numCell(tr, txt) { const td = tr.insertCell(); td.className = "num"; td.textContent = txt; return td; }
@@ -260,10 +403,11 @@ function renderCards() {
   tbl.replaceChildren();
   const head = tbl.createTHead().insertRow();
   COLS.forEach(([k, t, f]) => {
-    const th = document.createElement("th"); th.textContent = t;
-    if (["price", "low", "chg"].includes(k)) th.className = "num";
-    if (f) { th.tabIndex = 0; if (S.sort.key === k) th.setAttribute("aria-sort", S.sort.dir < 0 ? "descending" : "ascending");
-      th.onclick = th.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") { S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : (k === "name" ? 1 : -1) }; renderCards(); } }; }
+    const th = el("th", ["price", "low", "chg"].includes(k) ? "num" : "", t);
+    if (f) {
+      th.tabIndex = 0; if (S.sort.key === k) th.setAttribute("aria-sort", S.sort.dir < 0 ? "descending" : "ascending");
+      th.onclick = th.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") { S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : (k === "name" ? 1 : -1) }; renderCards(); } };
+    }
     head.append(th);
   });
   const body = tbl.createTBody();
@@ -282,30 +426,35 @@ async function openDetail(c) {
   S.detail = c;
   $("d-img").src = c.img ? c.img.replace("_200w", "_400w") : ""; $("d-img").alt = c.name;
   $("d-name").textContent = c.name;
-  $("d-meta").textContent = [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink, c.type, c.cost ? `custo ${c.cost}` : "", c.printing].filter(Boolean).join(" · ");
+  $("d-meta").textContent = [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink && c.ink.replace(";", "/"), c.type, c.cost ? `custo ${c.cost}` : "", c.printing,
+    c.core ? "Core e Infinity" : c.inf ? "Só Infinity" : "Fora dos formatos"].filter(Boolean).join(" · ");
   $("d-link").href = c.url || "#";
   const k = $("d-kpis"); k.replaceChildren();
-  const add = (label, val, cls = "") => { const d = document.createElement("div"); d.className = "kpi";
-    const l = document.createElement("span"); l.className = "kpi-label"; l.textContent = label;
-    const v = document.createElement("span"); v.className = "kpi-value " + cls; v.textContent = val; d.append(l, v); k.append(d); };
+  const add = (label, val, cls = "") => { const d = el("div", "kpi"); d.append(el("span", "kpi-label", label), el("span", "kpi-value " + cls, val)); k.append(d); };
   add("Market price", usd(c.price)); add("Menor anúncio", usd(c.low));
-  [["d7", "7 dias"], ["d30", "30 dias"], ["d365", "1 ano"], ["all", "Desde " + (c.first ? fmtDate(c.first[0]) : "–")]].forEach(([w, l]) => {
-    const v = c.ch[w]; add(l, pctTxt(v), v > 0 ? "up" : v < 0 ? "down" : ""); });
+  [["d7", "7 dias"], ["d30", "30 dias"], ["d365", "1 ano"]].forEach(([w, l]) => { const v = c.ch[w]; add(l, pctTxt(v), v > 0 ? "up" : v < 0 ? "down" : ""); });
+  const va = c.ch.all;
+  add(c.first ? `Desde o 1º preço (${usd(c.first[1])})` : "Desde o 1º preço", pctTxt(va), va > 0 ? "up" : va < 0 ? "down" : "");
+  $("d-note").textContent = c.first
+    ? `1º preço registrado: ${usd(c.first[1])} em ${fmtDate(c.first[0])}${c.first[0] === S.first ? " (início do nosso histórico)" : " (semana de lançamento, quando o preço costuma estar inflado)"}. No modo mensal, cada ponto é o último preço registrado no mês.`
+    : "";
   $("detail").showModal();
   await loadHistories([c.set]);
   renderDetailChart();
 }
 function renderDetailChart() {
-  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.gran === S.gran));
+  syncView();
   const c = S.detail; if (!c) return;
-  const h = S.histories.get(c.set); if (!h || h instanceof Promise) return;
+  const h = histNow(c.set); if (!h) return;
   let dates = h.dates, vals = h.s[c.id] || [];
-  if (S.gran === "monthly") {
-    const m = new Map();
-    dates.forEach((d, i) => { if (vals[i]) m.set(d.slice(0, 7), vals[i]); });
-    dates = [...m.keys()]; vals = [...m.values()];
+  if (S.view.gran === "monthly") {
+    // first recorded price + the last recorded price of every month (plotted on its real date)
+    const keep = new Map(); let firstIdx = -1;
+    dates.forEach((d, i) => { if (!vals[i]) return; if (firstIdx < 0) firstIdx = i; keep.set(d.slice(0, 7), i); });
+    const idx = firstIdx < 0 ? [] : [...new Set([firstIdx, ...keep.values()])].sort((a, b) => a - b);
+    dates = idx.map((i) => dates[i]); vals = idx.map((i) => vals[i]);
   }
-  lineChart("c-detail", dates, vals, "Preço", true);
+  lineChart("c-detail", dates, vals, "Preço");
 }
 
 /* ---------- charts (Chart.js) ---------- */
@@ -321,35 +470,67 @@ function baseOpts() {
     scales: { x: { grid: { color: grid, drawTicks: false }, border: { display: false } }, y: { grid: { color: grid, drawTicks: false }, border: { display: false } } },
   };
 }
-function barChart(id, labels, data, { horizontal = false, log = false, tooltip }) {
+function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip }) {
   const o = baseOpts(), vAxis = horizontal ? "x" : "y", cAxis = horizontal ? "y" : "x";
   o.indexAxis = horizontal ? "y" : "x";
   o.scales[cAxis].grid.display = false;
+  o.scales[cAxis].stacked = stacked; o.scales[vAxis].stacked = stacked;
   if (horizontal) o.scales[cAxis].ticks = { autoSkip: false, callback: (v) => { const l = labels[v] || ""; return l.length > 24 ? l.slice(0, 22) + "…" : l; } };
-  o.plugins.tooltip.callbacks = { title: (it) => labels[it[0].dataIndex] };
   o.scales[vAxis].type = log ? "logarithmic" : "linear";
-  o.scales[vAxis].ticks = { callback: (v) => (log && ![1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : "$" + Number(v).toLocaleString("pt-BR") };
+  o.scales[vAxis].ticks = { callback: (v) => (log && ![0.1, 1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : "$" + Number(v).toLocaleString("pt-BR") };
   if (log) o.scales[vAxis].title = { display: true, text: "escala logarítmica" };
-  o.plugins.tooltip.callbacks.label = (ctx) => tooltip(ctx.dataIndex);
-  const ds = { data, backgroundColor: css("--series-1"), hoverBackgroundColor: css("--series-1-hover"), borderRadius: 4, borderSkipped: "start", maxBarThickness: 28, categoryPercentage: 0.85 };
-  upsert(id, { type: "bar", data: { labels, datasets: [ds] }, options: o });
+  o.plugins.tooltip.callbacks = { title: (it) => labels[it[0].dataIndex], label: (ctx) => tooltip(ctx.dataIndex, ctx.datasetIndex) };
+  if (legend) { o.plugins.legend = { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, color: css("--text-secondary") } }; o.plugins.tooltip.displayColors = true; }
+  const ds = datasets.map((d) => ({
+    backgroundColor: css("--series-1"), hoverBackgroundColor: d.backgroundColor ? undefined : css("--series-1-hover"),
+    borderRadius: stacked ? 0 : 4, borderSkipped: "start", borderColor: css("--surface-1"), borderWidth: stacked ? { right: 2 } : 0,
+    maxBarThickness: 28, categoryPercentage: 0.85, ...d,
+  }));
+  upsert(id, { type: "bar", data: { labels, datasets: ds }, options: o });
 }
-function lineChart(id, labels, values, name, monthly = false) {
+function lineChart(id, labels, values, name, { counts } = {}) {
   const o = baseOpts();
-  // Time-proportional x axis (weekly history + daily recent data must not be spaced equally).
   const ts = (d) => Date.parse((d.length === 7 ? d + "-15" : d) + "T12:00:00Z");
-  const data = labels.map((d, i) => ({ x: ts(d), y: values[i] ?? null, d }));
+  const data = labels.map((d, i) => ({ x: ts(d), y: values[i] ?? null, d, n: counts ? counts[i] : null }));
   const mo = (t) => { const d = new Date(t); return String(d.getUTCMonth() + 1).padStart(2, "0") + "/" + String(d.getUTCFullYear()).slice(2); };
+  const xmin = data.length ? data[0].x : undefined, xmax = data.length ? data[data.length - 1].x : undefined;
+  o.layout = { padding: { top: 18 } };
   o.interaction = { mode: "nearest", axis: "x", intersect: false };
-  o.scales.x = { type: "linear", grid: { display: false }, border: { display: false },
-    min: data.length ? data[0].x : undefined, max: data.length ? data[data.length - 1].x : undefined,
+  o.scales.x = { type: "linear", min: xmin, max: xmax, grid: { display: false }, border: { display: false },
     ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (v) => mo(v) } };
   o.scales.y.ticks = { callback: (v) => "$" + Number(v).toLocaleString("pt-BR") };
-  o.plugins.tooltip.callbacks = { title: (it) => { const d = it[0].raw.d; return d.length === 7 ? d.slice(5) + "/" + d.slice(0, 4) : fmtDate(d); }, label: (ctx) => `${usd(ctx.parsed.y)}` };
+  o.plugins.tooltip.callbacks = {
+    title: (it) => { const d = it[0].raw.d; return d.length === 7 ? "fim de " + d.slice(5) + "/" + d.slice(0, 4) : fmtDate(d); },
+    label: (ctx) => usd(ctx.parsed.y),
+    afterLabel: (ctx) => ctx.raw.n ? `${ctx.raw.n.toLocaleString("pt-BR")} cartas` : "",
+  };
+  o.plugins.evlines = { items: eventItems() };
   const ds = { label: name, data, parsing: false, borderColor: css("--series-1"), borderWidth: 2, pointRadius: data.length < 40 ? 3 : 0, pointHoverRadius: 5,
     pointBackgroundColor: css("--series-1"), pointBorderColor: css("--surface-1"), pointBorderWidth: 2, spanGaps: true, tension: 0 };
-  upsert(id, { type: "line", data: { labels, datasets: [ds] }, options: o, plugins: [crosshair] });
+  upsert(id, { type: "line", data: { datasets: [ds] }, options: o, plugins: [crosshair, evlines] });
 }
+function eventItems() {
+  const items = [];
+  if (S.view.ev.rel) S.events.releases.forEach((r) => items.push({ x: Date.parse(r.date + "T12:00:00Z"), label: r.code, kind: "rel" }));
+  if (S.view.ev.rot) S.events.rotations.forEach((r) => items.push({ x: Date.parse(r.date + "T12:00:00Z"), label: "Rot.", kind: "rot" }));
+  return items.sort((a, b) => a.x - b.x || (a.kind === "rot") - (b.kind === "rot"));
+}
+const evlines = { id: "evlines", afterDatasetsDraw(chart, _a, opts) {
+  const items = (opts && opts.items) || [], xs = chart.scales.x, { top, bottom, left, right } = chart.chartArea, ctx = chart.ctx;
+  ctx.save(); ctx.font = "10px " + Chart.defaults.font.family; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+  let lastPx = -1e9, row = 0;
+  items.forEach((it) => {
+    const px = xs.getPixelForValue(it.x); if (px < left - 1 || px > right + 1) return;
+    const rot = it.kind === "rot";
+    ctx.strokeStyle = rot ? css("--critical") : css("--text-muted"); ctx.lineWidth = rot ? 1.5 : 1; ctx.setLineDash(rot ? [] : [4, 3]);
+    ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke();
+    // stagger labels that would collide with the previous one (row 0 sits above the plot)
+    row = px - lastPx < 26 ? row + 1 : 0; lastPx = px;
+    ctx.fillStyle = rot ? css("--critical") : css("--text-secondary");
+    ctx.fillText(it.label, Math.min(Math.max(px, left + 10), right - 10), top - 3 + row * 12);
+  });
+  ctx.restore();
+} };
 const crosshair = { id: "crosshair", afterDatasetsDraw(chart) {
   const a = chart.tooltip && chart.tooltip.getActiveElements(); if (!a || !a.length) return;
   const x = a[0].element.x, { top, bottom } = chart.chartArea, ctx = chart.ctx;

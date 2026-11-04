@@ -3,16 +3,28 @@
 Outputs (site/data/):
   cards.json            every single x printing with attributes, current price and changes
   sets.json             sets with release date and card counts
-  set_history.json      total market value of each set at every snapshot
+  events.json           main-set release dates and Core rotations (chart annotations)
   history/<groupId>.json  price series of every card in that set (loaded on demand)
 """
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import date, timedelta
 
 from common import CATALOG_FILE, PRICES_DIR, SITE_DATA, read_snapshot, snapshot_dates
+from formats import BANNED, CORE_MIN_SET, ROTATIONS
+
+PAREN_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def identity(name: str) -> str:
+    """Card identity shared by all printings: 'Elsa - Ice Maker (Foil)' -> 'Elsa - Ice Maker'."""
+    prev = None
+    while prev != name:
+        prev, name = name, PAREN_RE.sub("", name)
+    return name.strip()
 
 PRINTING = {"Normal": "N", "Holofoil": "H", "Cold Foil": "C"}
 WINDOWS = {"d1": 1, "d7": 7, "d30": 30, "d90": 90, "d365": 365}
@@ -54,6 +66,21 @@ def main() -> None:
     latest = dates[-1]
     latest_d = date.fromisoformat(latest)
 
+    # Format legality by card identity (any printing in a legal main set makes all printings legal).
+    def set_number(gid):
+        ab = (groups.get(gid) or {}).get("abbreviation") or ""
+        return int(ab) if ab.isdigit() else None
+
+    in_main, in_core = set(), set()
+    for p in products.values():
+        n = set_number(p["groupId"])
+        if n is None:
+            continue
+        ident = identity(p["name"])
+        in_main.add(ident)
+        if n >= CORE_MIN_SET:
+            in_core.add(ident)
+
     def price_near(s: dict, target: date, tol: int):
         """Market price at the latest snapshot on/before target, within tol days."""
         for back in range(tol + 1):
@@ -76,6 +103,8 @@ def main() -> None:
         ch = {w: pct(market, price_near(s, latest_d - timedelta(days=n), TOLERANCE[w])) for w, n in WINDOWS.items()}
         ch["all"] = pct(market, first_price)
         g = groups.get(p["groupId"], {})
+        ident = identity(p["name"])
+        quest = (g.get("abbreviation") or "").startswith("Q")  # Illumineer's Quest: legal in no format
         cards.append({
             "id": key,
             "pid": pid,
@@ -88,6 +117,9 @@ def main() -> None:
             "type": p.get("cardType"),
             "cost": p.get("cost"),
             "printing": sub,
+            "ident": ident,
+            "core": not quest and ident in in_core and ident not in BANNED["core"],
+            "inf": not quest and ident in in_main and ident not in BANNED["infinity"],
             "price": market,
             "low": low,
             "first": [first_date, first_price] if first_date else None,
@@ -123,22 +155,13 @@ def main() -> None:
             })
     dump("sets.json", sorted(sets_out, key=lambda g: g["publishedOn"] or ""))
 
-    # Set value over time: sum of market prices. A missing price is carried forward for at
-    # most 7 days (the weekly gap), so cards that lost their quote don't inflate the total forever.
-    set_hist = {}
-    for gid, keys in by_set.items():
-        last = {}  # key -> (date, price)
-        totals = []
-        for d in dates:
-            dd = date.fromisoformat(d)
-            for k in keys:
-                v = series[k].get(d)
-                if v and v[0]:
-                    last[k] = (dd, v[0])
-            vals = [p for (seen, p) in last.values() if (dd - seen).days <= 7]
-            totals.append(round(sum(vals), 2) if vals else None)
-        set_hist[gid] = totals
-    dump("set_history.json", {"dates": dates, "sets": set_hist})
+    # Timeline events for the charts: main-set releases and Core rotations.
+    releases = [
+        {"date": g["publishedOn"], "code": g["abbreviation"], "name": g["name"]}
+        for g in catalog["groups"]
+        if (g.get("abbreviation") or "").isdigit() and g.get("publishedOn")
+    ]
+    dump("events.json", {"releases": releases, "rotations": ROTATIONS})
     print(f"Built site data: {len(cards)} cards, {len(dates)} snapshots ({dates[0]} .. {latest})")
 
 

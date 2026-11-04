@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lorcana Price Dashboard</title>
-<meta name="description" content="Preços de cartas Disney Lorcana (TCGplayer): valor por coleção, média por raridade, maiores variações e histórico.">
+<meta name="description" content="Preços de cartas Disney Lorcana (TCGplayer): valor por coleção e por tinta, média por raridade, maiores variações e histórico.">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
 <script src="app.js" defer></script>
@@ -31,16 +31,23 @@
       <option value="d30" selected>30 dias</option>
       <option value="d90">90 dias</option>
       <option value="d365">1 ano</option>
-      <option value="all">Desde o início</option>
+      <option value="all">Desde o 1º preço</option>
       <option value="custom">Personalizada…</option>
     </select>
   </label>
   <span class="f custom-range" hidden>
     <input type="date" id="f-from" aria-label="Data inicial"> até <input type="date" id="f-to" aria-label="Data final">
   </span>
-  <label class="f">Coleção <select id="f-set"><option value="">Todas</option></select></label>
+  <label class="f">Formato
+    <select id="f-format">
+      <option value="">Todos</option>
+      <option value="core">Core</option>
+      <option value="infinity">Infinity</option>
+    </select>
+  </label>
+  <div class="f"><span>Coleção</span><div class="ms" id="f-set"></div></div>
   <div class="f inks" id="f-inks" role="group" aria-label="Cor de tinta"></div>
-  <label class="f">Raridade <select id="f-rarity"><option value="">Todas</option></select></label>
+  <div class="f"><span>Raridade</span><div class="ms" id="f-rarity"></div></div>
   <label class="f">Impressão
     <select id="f-printing">
       <option value="">Todas</option>
@@ -62,22 +69,50 @@
       <div class="kpi"><span class="kpi-label">Preço médio</span><span class="kpi-value" id="k-avg">–</span></div>
       <div class="kpi"><span class="kpi-label">Variação do valor total</span><span class="kpi-value" id="k-change">–</span><span class="kpi-sub" id="k-change-sub"></span></div>
     </div>
+
+    <article class="card">
+      <div class="row-between">
+        <h2>Evolução no tempo</h2>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Métrica" data-ctl="evoMetric">
+            <button type="button" data-v="total">Valor total</button><button type="button" data-v="avg">Preço médio</button>
+          </div>
+          <label class="check"><input type="checkbox" data-ev="rel" checked> Lançamentos</label>
+          <label class="check"><input type="checkbox" data-ev="rot" checked> Rotações</label>
+        </div>
+      </div>
+      <p class="muted small" id="evo-note">Respeita todos os filtros. Semanal até 90 dias atrás, diário depois.</p>
+      <div class="chart" style="height:320px"><canvas id="c-evo"></canvas></div>
+      <p class="muted small legend-ev"><span class="ev-key rel"></span> lançamento de coleção (número da coleção) <span class="ev-key rot"></span> rotação do Core</p>
+    </article>
+
     <div class="grid2">
       <article class="card">
-        <h2>Valor total por coleção</h2>
-        <p class="muted small">Soma do market price de uma cópia de cada carta e impressão no filtro.</p>
-        <div class="chart" style="height:440px"><canvas id="c-sets"></canvas></div>
+        <div class="row-between">
+          <h2 id="dist-title">Valor por coleção</h2>
+          <div class="controls">
+            <div class="seg" role="group" aria-label="Agrupar por" data-ctl="group">
+              <button type="button" data-v="set">Coleção</button><button type="button" data-v="ink">Tinta</button><button type="button" data-v="setink">Coleção × tinta</button>
+            </div>
+            <div class="seg" role="group" aria-label="Métrica" data-ctl="distMetric">
+              <button type="button" data-v="total">Total</button><button type="button" data-v="avg">Média</button>
+            </div>
+          </div>
+        </div>
+        <p class="muted small" id="dist-note"></p>
+        <div class="chart" id="dist-wrap" style="height:460px"><canvas id="c-dist"></canvas></div>
       </article>
       <article class="card">
         <h2>Preço médio por raridade</h2>
         <p class="muted small">Média do market price; a mediana e o número de cartas aparecem ao passar o mouse.</p>
-        <div class="chart" style="height:440px"><canvas id="c-rarity"></canvas></div>
+        <div class="chart" style="height:460px"><canvas id="c-rarity"></canvas></div>
       </article>
     </div>
+
     <article class="card">
-      <h2>Evolução do valor total <span class="muted" id="sethist-label"></span></h2>
-      <p class="muted small">Soma dos preços das cartas da coleção selecionada (ou de todas) em cada data. Semanal até 90 dias atrás, diário depois.</p>
-      <div class="chart" style="height:300px"><canvas id="c-sethist"></canvas></div>
+      <h2>Ranking por tinta</h2>
+      <p class="muted small">As 5 cartas mais caras de cada tinta dentro do filtro. Combine com o filtro de raridade (ex.: Legendary) e de coleção.</p>
+      <div class="ink-rank" id="ink-rank"></div>
     </article>
   </section>
 
@@ -108,12 +143,16 @@
       <div class="kpis small-kpis" id="d-kpis"></div>
       <div class="row-between">
         <h3>Histórico de preço</h3>
-        <div class="seg" role="group" aria-label="Granularidade">
-          <button type="button" data-gran="monthly" aria-pressed="true">Mensal</button>
-          <button type="button" data-gran="all" aria-pressed="false">Todos os pontos</button>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Granularidade" data-ctl="gran">
+            <button type="button" data-v="monthly">Mensal</button><button type="button" data-v="all">Todos os pontos</button>
+          </div>
+          <label class="check"><input type="checkbox" data-ev="rel" checked> Lançamentos</label>
+          <label class="check"><input type="checkbox" data-ev="rot" checked> Rotações</label>
         </div>
       </div>
       <div class="chart" style="height:260px"><canvas id="c-detail"></canvas></div>
+      <p class="muted small" id="d-note"></p>
       <p><a id="d-link" target="_blank" rel="noopener">Ver no TCGplayer ↗</a></p>
     </div>
   </div>
@@ -121,6 +160,7 @@
 
 <footer>
   <p>Preços: market price do <a href="https://www.tcgplayer.com/" target="_blank" rel="noopener">TCGplayer</a> via <a href="https://tcgcsv.com" target="_blank" rel="noopener">TCGCSV</a>, atualizados diariamente. Histórico desde fev/2024 (semanal) e diário nos últimos 90 dias.</p>
+  <p>Formatos: Core = coleções dentro da rotação atual (9 em diante), contando reimpressões; Infinity = todas as coleções principais, menos a lista de banidas. Illumineer's Quest e promos sem versão numa coleção principal ficam fora dos dois.</p>
   <p>Site de fã, não afiliado à Disney, Ravensburger ou TCGplayer. Não é recomendação de investimento.</p>
 </footer>
 </div>
