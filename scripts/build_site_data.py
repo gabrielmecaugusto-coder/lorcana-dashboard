@@ -174,7 +174,7 @@ def main() -> None:
         for g in catalog["groups"]
         if (g.get("abbreviation") or "").isdigit() and g.get("publishedOn")
     ]
-    dump("events.json", {"releases": releases, "rotations": ROTATIONS})
+    dump("events.json", {"releases": releases, "rotations": ROTATIONS, "coreMinSet": CORE_MIN_SET})
     print(f"Built site data: {len(cards)} cards, {len(dates)} snapshots ({dates[0]} .. {latest})")
 
 

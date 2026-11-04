@@ -41,7 +41,8 @@
   <label class="f">Formato
     <select id="f-format">
       <option value="">Todos</option>
-      <option value="core">Core</option>
+      <option value="core">Core (com reimpressões)</option>
+      <option value="core-strict">Core: só coleções da rotação</option>
       <option value="infinity">Infinity</option>
     </select>
   </label>
@@ -100,11 +101,12 @@
           </div>
         </div>
         <p class="muted small" id="dist-note"></p>
+        <p class="muted small">Clique numa barra para filtrar por ela.</p>
         <div class="chart" id="dist-wrap" style="height:460px"><canvas id="c-dist"></canvas></div>
       </article>
       <article class="card">
         <h2>Preço médio por raridade</h2>
-        <p class="muted small">Média do market price; a mediana e o número de cartas aparecem ao passar o mouse.</p>
+        <p class="muted small">Média do market price; a mediana e o número de cartas aparecem ao passar o mouse. Clique numa barra para filtrar por ela.</p>
         <div class="chart" style="height:460px"><canvas id="c-rarity"></canvas></div>
       </article>
     </div>
@@ -132,6 +134,7 @@
         </div>
       </div>
       <p class="muted small" id="grpchg-note"></p>
+      <p class="muted small">Clique numa barra para filtrar por ela; clique de novo para tirar o filtro.</p>
       <div class="chart" id="grpchg-wrap" style="height:340px"><canvas id="c-grpchg"></canvas></div>
     </article>
   </section>

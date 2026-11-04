@@ -185,6 +185,7 @@ function selectedSetIds() { return S.filter.sets.size ? [...S.filter.sets].map(N
 function passes(c) {
   const f = S.filter;
   if (f.format === "core" && !c.core) return false;
+  if (f.format === "core-strict" && !(c.core && /^\d+$/.test(c.setCode || "") && +c.setCode >= (S.events.coreMinSet || 9))) return false;
   if (f.format === "infinity" && !c.inf) return false;
   if (f.sets.size && !f.sets.has(String(c.set))) return false;
   if (f.inks.size && !inkList(c).some((i) => f.inks.has(i))) return false;
@@ -273,6 +274,7 @@ function renderDistribution(priced) {
     barChart("c-dist", setsIn.map((s) => s.name), [{ data: vals.map(r2) }], {
       horizontal: true,
       tooltip: (i) => { const n = priced.filter((c) => c.set === setsIn[i].groupId).length; return [usd0(vals[i]), `${n} cartas · lançada em ${fmtDate(setsIn[i].publishedOn)}`]; },
+      onClick: (i) => filterBy("set", setsIn[i].groupId),
     });
   } else if (group === "ink") {
     wrap.style.height = "380px";
@@ -281,6 +283,7 @@ function renderDistribution(priced) {
     barChart("c-dist", inksIn, [{ data: vals.map(r2), backgroundColor: inksIn.map((n) => INK_COLOR[n]) }], {
       horizontal: true,
       tooltip: (i) => [usd0(vals[i]), `${priced.filter((c) => inkGroup(c) === inksIn[i]).length} cartas`],
+      onClick: (i) => filterBy("ink", inksIn[i]),
     });
   } else {
     wrap.style.height = Math.max(340, setsIn.length * (avg ? 46 : 24) + 90) + "px";
@@ -292,6 +295,7 @@ function renderDistribution(priced) {
     barChart("c-dist", setsIn.map((s) => s.name), datasets, {
       horizontal: true, stacked: !avg, legend: true,
       tooltip: (i, ds) => `${datasets[ds].label}: ${usd0(datasets[ds].data[i])}`,
+      onClick: (i, ds) => filterBy("setink", [setsIn[i].groupId, datasets[ds].label]),
     });
   }
 }
@@ -305,7 +309,19 @@ function renderRarity(priced) {
   barChart("c-rarity", rk, [{ data: avgs.map((v) => Math.round(v * 100) / 100) }], {
     log: avgs.length > 1 && Math.max(...avgs) / Math.max(0.01, Math.min(...avgs)) > 50,
     tooltip: (i) => [`Média ${usd(stats[i].avg)}`, `Mediana ${usd(stats[i].med)} · ${stats[i].n} cartas`],
+    onClick: (i) => filterBy("rarity", rk[i]),
   });
+}
+
+/** Clicking a bar filters by it; clicking the same bar again (when it's the only selection) clears it. */
+function filterBy(kind, key) {
+  const f = S.filter;
+  const toggle = (set, v) => { const only = set.size === 1 && set.has(v); set.clear(); if (!only) set.add(v); };
+  if (kind === "set") toggle(f.sets, String(key));
+  else if (kind === "rarity") { if (key && key !== "—") toggle(f.rarities, key); }
+  else if (kind === "ink") { if (key === DUAL[0]) return; toggle(f.inks, key); }
+  else if (kind === "setink") { f.sets.clear(); f.sets.add(String(key[0])); if (key[1] !== DUAL[0]) { f.inks.clear(); f.inks.add(key[1]); } }
+  changed();
 }
 
 function renderInkRank(priced) {
@@ -389,6 +405,7 @@ function renderGroupChange(rows) {
   const pos = css("--series-1"), neg = css("--critical");
   barChart("c-grpchg", keys.map(label), [{ data: stats.map((s) => s.pct), backgroundColor: stats.map((s) => s.pct >= 0 ? pos : neg), borderSkipped: false }], {
     horizontal: true, fmt: (v) => (v > 0 ? "+" : "") + Number(v).toLocaleString("pt-BR") + "%",
+    onClick: (i) => filterBy(g, keys[i]),
     tooltip: (i) => [`Valor somado: ${pctTxt(stats[i].pct)}`, `${usd0(stats[i].then)} → ${usd0(stats[i].now)}`,
       `Mediana por carta: ${pctTxt(Math.round(stats[i].med * 10) / 10)} · ${stats[i].n} cartas`],
   });
@@ -501,7 +518,7 @@ function baseOpts() {
     scales: { x: { grid: { color: grid, drawTicks: false }, border: { display: false } }, y: { grid: { color: grid, drawTicks: false }, border: { display: false } } },
   };
 }
-function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip, fmt }) {
+function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip, fmt, onClick }) {
   const o = baseOpts(), vAxis = horizontal ? "x" : "y", cAxis = horizontal ? "y" : "x";
   o.indexAxis = horizontal ? "y" : "x";
   o.scales[cAxis].grid.display = false;
@@ -511,6 +528,10 @@ function barChart(id, labels, datasets, { horizontal = false, log = false, stack
   o.scales[vAxis].ticks = { callback: (v) => (log && ![0.1, 1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : fmt ? fmt(v) : "$" + Number(v).toLocaleString("pt-BR") };
   if (log) o.scales[vAxis].title = { display: true, text: "escala logarítmica" };
   o.plugins.tooltip.callbacks = { title: (it) => labels[it[0].dataIndex], label: (ctx) => tooltip(ctx.dataIndex, ctx.datasetIndex) };
+  if (onClick) {
+    o.onClick = (_e, els) => { if (els.length) { const { index, datasetIndex } = els[0]; setTimeout(() => onClick(index, datasetIndex), 0); } }; // defer: the click re-renders (destroys) this chart
+    o.onHover = (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; };
+  }
   if (legend) { o.plugins.legend = { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, color: css("--text-secondary") } }; o.plugins.tooltip.displayColors = true; }
   const ds = datasets.map((d) => ({
     backgroundColor: css("--series-1"), hoverBackgroundColor: d.backgroundColor ? undefined : css("--series-1-hover"),
