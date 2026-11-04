@@ -123,17 +123,20 @@ def main() -> None:
             })
     dump("sets.json", sorted(sets_out, key=lambda g: g["publishedOn"] or ""))
 
-    # Set value over time: sum of market prices, carrying the last known price forward.
+    # Set value over time: sum of market prices. A missing price is carried forward for at
+    # most 7 days (the weekly gap), so cards that lost their quote don't inflate the total forever.
     set_hist = {}
     for gid, keys in by_set.items():
-        last = {}
+        last = {}  # key -> (date, price)
         totals = []
         for d in dates:
+            dd = date.fromisoformat(d)
             for k in keys:
                 v = series[k].get(d)
                 if v and v[0]:
-                    last[k] = v[0]
-            totals.append(round(sum(last.values()), 2) if last else None)
+                    last[k] = (dd, v[0])
+            vals = [p for (seen, p) in last.values() if (dd - seen).days <= 7]
+            totals.append(round(sum(vals), 2) if vals else None)
         set_hist[gid] = totals
     dump("set_history.json", {"dates": dates, "sets": set_hist})
     print(f"Built site data: {len(cards)} cards, {len(dates)} snapshots ({dates[0]} .. {latest})")
