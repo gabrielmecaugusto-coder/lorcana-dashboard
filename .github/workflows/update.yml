@@ -55,7 +55,7 @@ jobs:
             echo "No data changes"
           else
             git commit -m "Dados de $(date -u +%F)"
-            git push
+            git pull --rebase origin main && git push
           fi
 
       - uses: actions/upload-pages-artifact@v3

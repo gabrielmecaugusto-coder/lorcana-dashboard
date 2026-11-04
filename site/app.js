@@ -325,10 +325,12 @@ function barChart(id, labels, data, { horizontal = false, log = false, tooltip }
   const o = baseOpts(), vAxis = horizontal ? "x" : "y", cAxis = horizontal ? "y" : "x";
   o.indexAxis = horizontal ? "y" : "x";
   o.scales[cAxis].grid.display = false;
+  if (horizontal) o.scales[cAxis].ticks = { autoSkip: false, callback: (v) => { const l = labels[v] || ""; return l.length > 24 ? l.slice(0, 22) + "…" : l; } };
+  o.plugins.tooltip.callbacks = { title: (it) => labels[it[0].dataIndex] };
   o.scales[vAxis].type = log ? "logarithmic" : "linear";
   o.scales[vAxis].ticks = { callback: (v) => (log && ![1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : "$" + Number(v).toLocaleString("pt-BR") };
   if (log) o.scales[vAxis].title = { display: true, text: "escala logarítmica" };
-  o.plugins.tooltip.callbacks = { label: (ctx) => tooltip(ctx.dataIndex) };
+  o.plugins.tooltip.callbacks.label = (ctx) => tooltip(ctx.dataIndex);
   const ds = { data, backgroundColor: css("--series-1"), hoverBackgroundColor: css("--series-1-hover"), borderRadius: 4, borderSkipped: "start", maxBarThickness: 28, categoryPercentage: 0.85 };
   upsert(id, { type: "bar", data: { labels, datasets: [ds] }, options: o });
 }
