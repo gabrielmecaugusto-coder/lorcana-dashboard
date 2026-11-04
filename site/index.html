@@ -122,6 +122,18 @@
       <article class="card"><h2>Maiores altas</h2><div class="table-wrap"><table class="t" id="t-up"></table></div></article>
       <article class="card"><h2>Maiores quedas</h2><div class="table-wrap"><table class="t" id="t-down"></table></div></article>
     </div>
+    <article class="card">
+      <div class="row-between">
+        <h2 id="grpchg-title">Variação por tinta</h2>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Agrupar por" data-ctl="chgGroup">
+            <button type="button" data-v="ink">Tinta</button><button type="button" data-v="rarity">Raridade</button><button type="button" data-v="set">Coleção</button>
+          </div>
+        </div>
+      </div>
+      <p class="muted small" id="grpchg-note"></p>
+      <div class="chart" id="grpchg-wrap" style="height:340px"><canvas id="c-grpchg"></canvas></div>
+    </article>
   </section>
 
   <section id="tab-cards" class="tab" hidden>

@@ -17,7 +17,7 @@ const S = {
   cards: [], sets: [], setsById: new Map(), events: { releases: [], rotations: [] }, latest: null, first: null,
   histories: new Map(),
   filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), printing: "", min: 0, q: "" },
-  view: { evoMetric: "total", group: "set", distMetric: "total", gran: "monthly", ev: { rel: true, rot: true } },
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
@@ -144,6 +144,7 @@ function writeHash() {
   if (v.evoMetric !== "total") p.set("evo", v.evoMetric);
   if (v.group !== "set") p.set("grp", v.group);
   if (v.distMetric !== "total") p.set("dm", v.distMetric);
+  if (v.chgGroup !== "ink") p.set("cg", v.chgGroup);
   if (!v.ev.rel) p.set("norel", 1);
   if (!v.ev.rot) p.set("norot", 1);
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
@@ -158,7 +159,7 @@ function readHash() {
   f.inks.clear(); list("ink").forEach((x) => f.inks.add(x));
   f.rarities.clear(); list("rar").forEach((x) => f.rarities.add(x));
   f.printing = p.get("pr") || ""; f.min = +(p.get("min") || 0); f.q = p.get("q") || "";
-  v.evoMetric = p.get("evo") || "total"; v.group = p.get("grp") || "set"; v.distMetric = p.get("dm") || "total";
+  v.evoMetric = p.get("evo") || "total"; v.group = p.get("grp") || "set"; v.distMetric = p.get("dm") || "total"; v.chgGroup = p.get("cg") || "ink";
   v.ev.rel = !p.get("norel"); v.ev.rot = !p.get("norot");
   if (f.window === "custom" && !f.from) { f.from = addDays(S.latest, -30); f.to = S.latest; }
   syncControls();
@@ -361,6 +362,36 @@ function renderMovers(rows) {
   const extra = S.filter.window === "all" ? " \"Antes\" é o preço 1 semana após o lançamento da carta (ou o de fev/2024, início do histórico, para coleções mais antigas). Cartas lançadas há menos de uma semana ficam de fora." : "";
   $("movers-note").textContent = `Janela: ${windowText()}. Só cartas com preço atual a partir de ${usd(MOVERS_MIN_PRICE)}, para evitar ruído de cartas de centavos. ${list.length} cartas com preço nas duas datas.${extra}`;
   moverTable($("t-up"), up); moverTable($("t-down"), down);
+  renderGroupChange(rows);
+}
+
+/** Change of the summed value of each group (ink / rarity / set) over the selected window. */
+function renderGroupChange(rows) {
+  const g = S.view.chgGroup;
+  const keyOf = g === "ink" ? inkGroup : g === "rarity" ? (c) => c.rarity : (c) => c.set;
+  const acc = new Map();
+  rows.forEach((c) => {
+    const k = keyOf(c); if (k == null) return;
+    const x = change(c); if (!x.now || !x.then) return;
+    if (!acc.has(k)) acc.set(k, { now: 0, then: 0, pcts: [] });
+    const a = acc.get(k); a.now += x.now; a.then += x.then; a.pcts.push((x.now / x.then - 1) * 100);
+  });
+  let keys = [...acc.keys()];
+  if (g === "ink") keys = [...INKS, DUAL].map(([n]) => n).filter((n) => acc.has(n));
+  else if (g === "rarity") keys.sort((a, b) => rank(a) - rank(b));
+  else keys = S.sets.map((s) => s.groupId).filter((id) => acc.has(id)).reverse();
+  const label = (k) => g === "set" ? (S.setsById.get(k)?.name || k) : k;
+  const stats = keys.map((k) => { const a = acc.get(k), v = a.pcts.sort((x, y) => x - y);
+    return { pct: Math.round((a.now / a.then - 1) * 1000) / 10, med: v[Math.floor(v.length / 2)], n: v.length, now: a.now, then: a.then }; });
+  $("grpchg-title").textContent = "Variação por " + (g === "ink" ? "tinta" : g === "rarity" ? "raridade" : "coleção");
+  $("grpchg-note").textContent = `Quanto variou o valor somado das cartas de cada grupo na janela (${windowText()}), contando só cartas com preço nas duas datas. A mediana da variação por carta aparece ao passar o mouse.`;
+  $("grpchg-wrap").style.height = Math.max(260, keys.length * 30 + 60) + "px";
+  const pos = css("--series-1"), neg = css("--critical");
+  barChart("c-grpchg", keys.map(label), [{ data: stats.map((s) => s.pct), backgroundColor: stats.map((s) => s.pct >= 0 ? pos : neg), borderSkipped: false }], {
+    horizontal: true, fmt: (v) => (v > 0 ? "+" : "") + Number(v).toLocaleString("pt-BR") + "%",
+    tooltip: (i) => [`Valor somado: ${pctTxt(stats[i].pct)}`, `${usd0(stats[i].then)} → ${usd0(stats[i].now)}`,
+      `Mediana por carta: ${pctTxt(Math.round(stats[i].med * 10) / 10)} · ${stats[i].n} cartas`],
+  });
 }
 
 function moverTable(tbl, items) {
@@ -470,14 +501,14 @@ function baseOpts() {
     scales: { x: { grid: { color: grid, drawTicks: false }, border: { display: false } }, y: { grid: { color: grid, drawTicks: false }, border: { display: false } } },
   };
 }
-function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip }) {
+function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip, fmt }) {
   const o = baseOpts(), vAxis = horizontal ? "x" : "y", cAxis = horizontal ? "y" : "x";
   o.indexAxis = horizontal ? "y" : "x";
   o.scales[cAxis].grid.display = false;
   o.scales[cAxis].stacked = stacked; o.scales[vAxis].stacked = stacked;
   if (horizontal) o.scales[cAxis].ticks = { autoSkip: false, callback: (v) => { const l = labels[v] || ""; return l.length > 24 ? l.slice(0, 22) + "…" : l; } };
   o.scales[vAxis].type = log ? "logarithmic" : "linear";
-  o.scales[vAxis].ticks = { callback: (v) => (log && ![0.1, 1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : "$" + Number(v).toLocaleString("pt-BR") };
+  o.scales[vAxis].ticks = { callback: (v) => (log && ![0.1, 1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : fmt ? fmt(v) : "$" + Number(v).toLocaleString("pt-BR") };
   if (log) o.scales[vAxis].title = { display: true, text: "escala logarítmica" };
   o.plugins.tooltip.callbacks = { title: (it) => labels[it[0].dataIndex], label: (ctx) => tooltip(ctx.dataIndex, ctx.datasetIndex) };
   if (legend) { o.plugins.legend = { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, color: css("--text-secondary") } }; o.plugins.tooltip.displayColors = true; }

@@ -8,7 +8,7 @@ Dashboard público de preços de cartas **Disney Lorcana**, com base no market p
 - Evolução do valor total ou do preço médio no tempo, com marcação de lançamentos de coleção e rotações do Core
 - Valor total ou preço médio por coleção, por tinta ou por coleção × tinta; preço médio por raridade
 - Ranking das 5 cartas mais caras de cada tinta
-- Maiores altas e quedas em 1 dia, 7 dias, 30 dias, 90 dias, 1 ano, desde o lançamento ou entre duas datas escolhidas. "Desde o lançamento" usa o preço de 1 semana após a estreia da carta, para não pegar a euforia do lançamento (cartas anteriores a fev/2024 usam o início do histórico)
+- Maiores altas e quedas, e variação agregada por tinta, raridade ou coleção, em 1 dia, 7 dias, 30 dias, 90 dias, 1 ano, desde o lançamento ou entre duas datas escolhidas. "Desde o lançamento" usa o preço de 1 semana após a estreia da carta, para não pegar a euforia do lançamento (cartas anteriores a fev/2024 usam o início do histórico)
 - Histórico de preço de cada carta (mensal ou todos os pontos)
 - Filtros por formato (Core/Infinity), coleções e raridades (várias ao mesmo tempo), cor de tinta, impressão, preço mínimo e nome
 
