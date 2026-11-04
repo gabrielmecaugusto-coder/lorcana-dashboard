@@ -40,7 +40,7 @@ jobs:
       - name: Backfill missing history
         continue-on-error: true
         working-directory: scripts
-        run: python backfill.py --daily-days 90 ${{ inputs.full_backfill && '' || '--max 40' }}
+        run: python backfill.py --daily-days 90 ${{ inputs.full_backfill && '--max 0' || '--max 40' }}
 
       - name: Build site data
         working-directory: scripts
