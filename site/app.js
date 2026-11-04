@@ -8,7 +8,7 @@ const INKS = [
 const DUAL = ["Duas tintas", "#4f4e49"];
 const INK_COLOR = Object.fromEntries([...INKS, DUAL]);
 const RARITY_ORDER = ["Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", "Iconic", "Promo", "Quest"];
-const WINDOW_LABEL = { d1: "1 dia", d7: "7 dias", d30: "30 dias", d90: "90 dias", d365: "1 ano", all: "desde o 1º preço" };
+const WINDOW_LABEL = { d1: "1 dia", d7: "7 dias", d30: "30 dias", d90: "90 dias", d365: "1 ano", all: "desde o lançamento (+1 semana)" };
 const MOVERS_MIN_PRICE = 1; // ignore penny cards in the movers lists (noise)
 const CARRY_DAYS = 7;       // a missing price is carried forward at most this long in time series
 const PAGE = 50;
@@ -358,7 +358,7 @@ function renderMovers(rows) {
   const list = rows.map((c) => ({ c, x: change(c) })).filter((o) => o.x.pct != null && o.x.now >= MOVERS_MIN_PRICE);
   const up = list.filter((o) => o.x.pct > 0).sort((a, b) => b.x.pct - a.x.pct).slice(0, 25);
   const down = list.filter((o) => o.x.pct < 0).sort((a, b) => a.x.pct - b.x.pct).slice(0, 25);
-  const extra = S.filter.window === "all" ? " \"Antes\" é o primeiro preço registrado da carta: na semana de lançamento (ou em fev/2024, para coleções mais antigas), quando o preço costuma estar inflado." : "";
+  const extra = S.filter.window === "all" ? " \"Antes\" é o preço 1 semana após o lançamento da carta (ou o de fev/2024, início do histórico, para coleções mais antigas). Cartas lançadas há menos de uma semana ficam de fora." : "";
   $("movers-note").textContent = `Janela: ${windowText()}. Só cartas com preço atual a partir de ${usd(MOVERS_MIN_PRICE)}, para evitar ruído de cartas de centavos. ${list.length} cartas com preço nas duas datas.${extra}`;
   moverTable($("t-up"), up); moverTable($("t-down"), down);
 }
@@ -434,10 +434,10 @@ async function openDetail(c) {
   add("Market price", usd(c.price)); add("Menor anúncio", usd(c.low));
   [["d7", "7 dias"], ["d30", "30 dias"], ["d365", "1 ano"]].forEach(([w, l]) => { const v = c.ch[w]; add(l, pctTxt(v), v > 0 ? "up" : v < 0 ? "down" : ""); });
   const va = c.ch.all;
-  add(c.first ? `Desde o 1º preço (${usd(c.first[1])})` : "Desde o 1º preço", pctTxt(va), va > 0 ? "up" : va < 0 ? "down" : "");
+  add(c.first ? `Desde o lançamento (${usd(c.first[1])})` : "Desde o lançamento", pctTxt(va), va > 0 ? "up" : va < 0 ? "down" : "");
   $("d-note").textContent = c.first
-    ? `1º preço registrado: ${usd(c.first[1])} em ${fmtDate(c.first[0])}${c.first[0] === S.first ? " (início do nosso histórico)" : " (semana de lançamento, quando o preço costuma estar inflado)"}. No modo mensal, cada ponto é o último preço registrado no mês.`
-    : "";
+    ? `Base do "desde o lançamento": ${usd(c.first[1])} em ${fmtDate(c.first[0])}${c.first[0] === S.first ? " (início do nosso histórico; a carta é anterior a fev/2024)" : " (primeiro preço a partir de 1 semana após o lançamento, para não pegar a euforia da estreia)"}. No modo mensal, o primeiro ponto é o primeiro preço registrado e os demais são o último preço de cada mês.`
+    : "Ainda não há preço de 1 semana após o lançamento desta carta. No modo mensal, cada ponto é o último preço do mês.";
   $("detail").showModal();
   await loadHistories([c.set]);
   renderDetailChart();

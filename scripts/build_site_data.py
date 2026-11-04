@@ -65,6 +65,7 @@ def main() -> None:
 
     latest = dates[-1]
     latest_d = date.fromisoformat(latest)
+    g_release = {gid: g.get("publishedOn") for gid, g in groups.items()}
 
     # Format legality by card identity (any printing in a legal main set makes all printings legal).
     def set_number(gid):
@@ -98,8 +99,20 @@ def main() -> None:
         p = products[pid]
         cur = s.get(latest)
         market, low = (cur if cur else (None, None))
-        first_date = next((d for d in dates if s.get(d) and s[d][0]), None)
-        first_price = s[first_date][0] if first_date else None
+        # Base price for "since launch": one week after the card's launch, so pre-release and
+        # launch-week hype don't distort the change. Launch = later of set release and the card's
+        # first quote. Cards that already existed when our history starts use the first snapshot.
+        obs = [d for d in dates if s.get(d) and s[d][0]]
+        first_date = first_price = None
+        if obs:
+            release = g_release.get(p["groupId"]) or obs[0]
+            launch = max(release, obs[0])
+            if obs[0] == dates[0] and release < dates[0]:
+                first_date = obs[0]
+            else:
+                target = (date.fromisoformat(launch) + timedelta(days=7)).isoformat()
+                first_date = next((d for d in obs if d >= target), None)
+            first_price = s[first_date][0] if first_date else None
         ch = {w: pct(market, price_near(s, latest_d - timedelta(days=n), TOLERANCE[w])) for w, n in WINDOWS.items()}
         ch["all"] = pct(market, first_price)
         g = groups.get(p["groupId"], {})
