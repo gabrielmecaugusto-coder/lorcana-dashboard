@@ -44,7 +44,7 @@ jobs:
 
       - name: Build site data
         working-directory: scripts
-        run: python build_site_data.py
+        run: python build_site_data.py && python card_functions.py
 
       - name: Commit data
         run: |

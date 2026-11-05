@@ -149,3 +149,7 @@ footer p { margin: 4px 0; }
 
 /* hidden must win over layout classes like .grid2 */
 [hidden] { display: none !important; }
+
+.tip { text-decoration: underline dotted var(--text-muted); text-underline-offset: 3px; cursor: help; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; border: 1px solid var(--text-primary); background: var(--text-primary); color: var(--surface-1); border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+.btn:hover { opacity: .9; }

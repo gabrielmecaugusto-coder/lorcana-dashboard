@@ -20,6 +20,7 @@
     <button role="tab" data-tab="overview" aria-selected="true">Visão geral</button>
     <button role="tab" data-tab="movers">Variações</button>
     <button role="tab" data-tab="cards">Cartas</button>
+    <button role="tab" data-tab="deck" id="tab-btn-deck" hidden>Analisar deck</button>
     <button role="tab" data-tab="meta" data-duels hidden>Meta × preço</button>
     <button role="tab" data-tab="decks" data-duels hidden>Decks</button>
     <button role="tab" data-tab="mechs" data-duels hidden>Mechanics</button>
@@ -54,6 +55,7 @@
   <div class="f"><span>Raridade</span><div class="ms" id="f-rarity"></div></div>
   <div class="f" data-duels hidden><span>Mechanic</span><div class="ms" id="f-mech"></div></div>
   <div class="f" data-duels hidden><span>Deck</span><div class="ms" id="f-deck"></div></div>
+  <div class="f" data-duels hidden id="cat-filter-wrap"><span>Categoria</span><div class="ms" id="f-cat"></div></div>
   <label class="f">Impressão
     <select id="f-printing">
       <option value="">Todas</option>
@@ -168,6 +170,41 @@
       <p class="muted small" id="decks-note"></p>
       <div class="table-wrap"><table class="t sortable" id="t-decks"></table></div>
     </article>
+    <div class="grid2" id="cat-box">
+      <article class="card"><h2 id="cat-title">Win rate por categoria</h2><p class="muted small" id="cat-note"></p><div class="table-wrap"><table class="t" id="t-cat"></table></div>
+        <details class="small muted" style="margin-top:10px"><summary>Como a categoria é definida</summary><p id="cat-method"></p></details></article>
+      <article class="card"><h2 id="catmu-title">Confrontos entre categorias</h2><p class="muted small" id="catmu-note"></p><div class="table-wrap"><table class="t" id="t-catmu"></table></div></article>
+    </div>
+    <article class="card" id="comp-box">
+      <div class="row-between">
+        <h2 id="comp-title">Composição</h2>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Nível" data-ctl="compLevel">
+            <button type="button" data-v="func">Função</button><button type="button" data-v="sub">Subfunção</button><button type="button" data-v="hab">Habilidade</button>
+          </div>
+        </div>
+      </div>
+      <p class="muted small" id="comp-note"></p>
+      <div class="grid2">
+        <div class="chart" style="height:340px"><canvas id="c-comp"></canvas></div>
+        <div class="table-wrap"><table class="t" id="t-comp"></table></div>
+      </div>
+    </article>
+    <article class="card" id="catevo-box">
+      <div class="row-between">
+        <h2>Evolução por categoria</h2>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Granularidade" data-ctl="catGran">
+            <button type="button" data-v="era">Por expansão (desde Set 11)</button><button type="button" data-v="week">Semanal (formato atual)</button>
+          </div>
+        </div>
+      </div>
+      <p class="muted small" id="catevo-note"></p>
+      <div class="grid2">
+        <div><h3>Win rate</h3><div class="chart" style="height:260px"><canvas id="c-cat-wr"></canvas></div></div>
+        <div><h3>Presença</h3><div class="chart" style="height:260px"><canvas id="c-cat-play"></canvas></div></div>
+      </div>
+    </article>
     <div class="grid2" id="deck-evo" hidden>
       <article class="card"><h2 id="de-title-play"></h2><p class="muted small">Fração dos decks jogados em cada expansão do ranqueado Core BO1 (Duels.ink).</p><div class="chart" style="height:240px"><canvas id="c-deck-play"></canvas></div></article>
       <article class="card"><h2 id="de-title-wr"></h2><p class="muted small">Win rate em cada expansão. Linhas tracejadas: lançamentos; vermelhas: rotações.</p><div class="chart" style="height:240px"><canvas id="c-deck-wr"></canvas></div></article>
@@ -178,11 +215,51 @@
     </div>
   </section>
 
+  <section id="tab-deck" class="tab" hidden>
+    <article class="card">
+      <h2>Analisar uma decklist</h2>
+      <p class="muted small">Cole a lista exportada do Dreamborn, Duels.ink, Inkdecks ou similar: uma carta por linha, no formato <code>4 Nome - Subtítulo</code> (também aceita <code>4x</code>). A lista fica só no seu navegador.</p>
+      <textarea id="dl-text" rows="12" spellcheck="false" placeholder="4 Tipo - Wily Fox&#10;4 Mickey Mouse - Brave Little Tailor&#10;2 Be Prepared&#10;…" style="width:100%;font:13px/1.5 var(--font-mono, monospace);padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--page);color:var(--text-primary);resize:vertical"></textarea>
+      <div class="controls" style="margin-top:8px"><button type="button" class="btn" id="dl-go">Analisar</button><button type="button" class="link" id="dl-clear">Limpar</button><span class="muted small" id="dl-status"></span></div>
+      <p class="small" id="dl-warn" style="color:var(--critical)"></p>
+    </article>
+    <div id="dl-out" hidden>
+      <div class="kpis small-kpis">
+        <div class="kpi"><span class="kpi-label">Cartas</span><span class="kpi-value" id="dk-cards">–</span><span class="kpi-sub" id="dk-cards-sub"></span></div>
+        <div class="kpi"><span class="kpi-label">Tintas</span><span class="kpi-value" id="dk-inks">–</span></div>
+        <div class="kpi"><span class="kpi-label">Custo médio (personagens)</span><span class="kpi-value" id="dk-cost">–</span><span class="kpi-sub" id="dk-cost-sub"></span></div>
+        <div class="kpi"><span class="kpi-label">Preço da lista</span><span class="kpi-value" id="dk-price">–</span><span class="kpi-sub">impressão normal, TCGplayer</span></div>
+      </div>
+      <article class="card">
+        <div class="row-between">
+          <h2>Composição por função</h2>
+          <div class="controls"><div class="seg" role="group" aria-label="Nível" data-ctl="dlLevel">
+            <button type="button" data-v="func">Função</button><button type="button" data-v="sub">Subfunção</button><button type="button" data-v="hab">Habilidade</button>
+          </div></div>
+        </div>
+        <p class="muted small" id="dl-comp-note"></p>
+        <div class="grid2">
+          <div class="chart" style="height:340px"><canvas id="c-dl-comp"></canvas></div>
+          <div class="table-wrap"><table class="t" id="t-dl-comp"></table></div>
+        </div>
+      </article>
+      <div class="grid2">
+        <article class="card"><h2>Curva de custo</h2><p class="muted small">Cópias por custo e tipo de carta.</p><div class="chart" style="height:260px"><canvas id="c-dl-curve"></canvas></div></article>
+        <article class="card"><h2>Quando as habilidades acontecem</h2><p class="muted small">Cópias com habilidades em cada momento (uma carta pode ter vários).</p><div class="chart" style="height:260px"><canvas id="c-dl-mom"></canvas></div></article>
+      </div>
+      <article class="card"><h2>Cartas da lista</h2><div class="table-wrap"><table class="t" id="t-dl"></table></div></article>
+    </div>
+  </section>
+
   <section id="tab-mechs" class="tab" hidden>
     <article class="card">
       <div class="row-between">
-        <h2>Participação no meta por mechanic</h2>
+        <h2>Participação no meta por função</h2>
         <div class="controls">
+          <div class="seg" role="group" aria-label="Nível" data-ctl="mechLevel">
+            <button type="button" data-v="func">Função</button><button type="button" data-v="sub">Subfunção</button><button type="button" data-v="hab">Habilidade</button><button type="button" data-v="mom">Momento</button><button type="button" data-v="duels">Mechanic (Duels.ink)</button>
+          </div>
+          <label class="check" id="mom-filter-wrap">Momento <span class="ms" id="f-mom"></span></label>
           <div class="seg" role="group" aria-label="Granularidade" data-ctl="mechGran">
             <button type="button" data-v="week">Semanal (formato atual)</button><button type="button" data-v="era">Por expansão (desde Set 11)</button>
           </div>
@@ -192,14 +269,15 @@
       <div class="chart" style="height:320px"><canvas id="c-mech-share"></canvas></div>
     </article>
     <article class="card">
-      <h2>Preço das cartas por mechanic</h2>
+      <h2 id="mech-price-title">Preço das cartas por função</h2>
       <p class="muted small" id="mech-price-note"></p>
       <div class="chart" style="height:320px"><canvas id="c-mech-price"></canvas></div>
     </article>
     <article class="card">
-      <h2>Resumo do período</h2>
-      <p class="muted small">Clique numa mechanic para incluir ou tirar do filtro (os gráficos mostram até 6).</p>
+      <div class="row-between"><h2 id="mech-sum-title">Resumo do período</h2><button type="button" class="link" id="mech-back" hidden>‹ Voltar para as mechanics</button></div>
+      <p class="muted small" id="mech-sum-note"></p>
       <div class="table-wrap"><table class="t sortable" id="t-mech"></table></div>
+      <div class="pager" id="mc-pager" hidden><button type="button" id="mc-prev">‹</button><span id="mc-info"></span><button type="button" id="mc-next">›</button></div>
     </article>
   </section>
 
