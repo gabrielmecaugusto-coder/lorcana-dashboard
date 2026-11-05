@@ -22,6 +22,7 @@
     <button role="tab" data-tab="cards">Cartas</button>
     <button role="tab" data-tab="meta" data-duels hidden>Meta × preço</button>
     <button role="tab" data-tab="decks" data-duels hidden>Decks</button>
+    <button role="tab" data-tab="mechs" data-duels hidden>Mechanics</button>
   </nav>
 </header>
 
@@ -175,6 +176,31 @@
       <article class="card"><h2 id="dd-title-mu"></h2><p class="muted small" id="dd-note-mu"></p><div class="table-wrap"><table class="t sortable" id="t-mu"></table></div></article>
       <article class="card"><h2 id="dd-title-list"></h2><p class="muted small" id="dd-note-list"></p><div class="table-wrap"><table class="t" id="t-list"></table></div></article>
     </div>
+  </section>
+
+  <section id="tab-mechs" class="tab" hidden>
+    <article class="card">
+      <div class="row-between">
+        <h2>Participação no meta por mechanic</h2>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Granularidade" data-ctl="mechGran">
+            <button type="button" data-v="week">Semanal (formato atual)</button><button type="button" data-v="era">Por expansão (desde Set 11)</button>
+          </div>
+        </div>
+      </div>
+      <p class="muted small" id="mech-note"></p>
+      <div class="chart" style="height:320px"><canvas id="c-mech-share"></canvas></div>
+    </article>
+    <article class="card">
+      <h2>Preço das cartas por mechanic</h2>
+      <p class="muted small" id="mech-price-note"></p>
+      <div class="chart" style="height:320px"><canvas id="c-mech-price"></canvas></div>
+    </article>
+    <article class="card">
+      <h2>Resumo do período</h2>
+      <p class="muted small">Clique numa mechanic para incluir ou tirar do filtro (os gráficos mostram até 6).</p>
+      <div class="table-wrap"><table class="t sortable" id="t-mech"></table></div>
+    </article>
   </section>
 
   <section id="tab-cards" class="tab" hidden>

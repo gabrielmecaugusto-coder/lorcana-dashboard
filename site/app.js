@@ -18,8 +18,8 @@ const S = {
   histories: new Map(),
   filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), printing: "", min: 0, q: "" },
   duels: null, duelsByPid: new Map(), duelsById: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
-  deckSort: { key: "wr", dir: -1 }, muSort: { key: "games", dir: -1 }, selDeck: null, /* deck key */ deckMin: 2000,
-  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", gran: "monthly", ev: { rel: true, rot: true } },
+  deckSort: { key: "wr", dir: -1 }, mechSort: { key: "dShare", dir: -1 }, muSort: { key: "games", dir: -1 }, selDeck: null, /* deck key */ deckMin: 2000,
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", mechGran: "week", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
@@ -205,7 +205,7 @@ async function changed() {
 function addDays(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function selectedSetIds() { return S.filter.sets.size ? [...S.filter.sets].map(Number) : S.sets.map((s) => s.groupId); }
 
-function passes(c) {
+function passes(c, ignoreMech = false) {
   const f = S.filter;
   if (f.format === "core" && !c.core) return false;
   if (f.format === "core-strict" && !(c.core && /^\d+$/.test(c.setCode || "") && +c.setCode >= (S.events.coreMinSet || 9))) return false;
@@ -213,7 +213,7 @@ function passes(c) {
   if (f.sets.size && !f.sets.has(String(c.set))) return false;
   if (f.inks.size && !inkList(c).some((i) => f.inks.has(i))) return false;
   if (f.rarities.size && !f.rarities.has(c.rarity)) return false;
-  if (f.mechs.size) { const d = duelsOf(c); if (!d || !d.m.some((i) => f.mechs.has(String(i)))) return false; }
+  if (f.mechs.size && !ignoreMech) { const d = duelsOf(c); if (!d || !d.m.some((i) => f.mechs.has(String(i)))) return false; }
   if (f.decks.size && S.dcur) { const d = duelsOf(c); if (!d || !selectedDeckCards().has(d.id)) return false; }
   if (f.printing && c.printing !== f.printing) return false;
   if (f.min && !(c.price >= f.min)) return false;
@@ -264,6 +264,7 @@ function render() {
   if (S.tab === "cards") renderCards();
   if (S.tab === "meta") { S.metaPage = 0; renderMeta(); }
   if (S.tab === "decks") renderDecks();
+  if (S.tab === "mechs") renderMechs();
 }
 
 function renderOverview(rows) {
@@ -788,6 +789,115 @@ function renderDeckDetail() {
     else { tr.insertCell(); tr.insertCell().textContent = x.cid; }
     numCell(tr, x.cp.toLocaleString("pt-BR", { maximumFractionDigits: 1 }));
     numCell(tr, usd(x.c?.price)); numCell(tr, x.c ? usd(x.n * x.c.price) : "–"); });
+}
+
+/* ---------- Mechanics tab ---------- */
+const SERIES = { light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"], dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300"] };
+const seriesColors = () => SERIES[matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"];
+
+function windowRange() {
+  const f = S.filter;
+  if (f.window === "custom") return [f.from, f.to];
+  if (f.window === "all") return [null, S.latest];
+  const n = { d1: 1, d7: 7, d30: 30, d90: 90, d365: 365 }[f.window] || 30;
+  return [addDays(S.latest, -n), S.latest];
+}
+
+let mechToken = 0;
+async function renderMechs() {
+  if (!S.duels || !S.duels.weekly) return;
+  syncView();
+  const my = ++mechToken, f = S.filter, gran = S.view.mechGran, mechs = S.duels.mechanics;
+  // cards in scope: all filters except the mechanic filter (it only picks which lines to draw)
+  const rows = S.cards.filter((c) => passes(c, true));
+  const setOf = mechs.map(() => new Set()), cardsOf = mechs.map(() => []);
+  rows.forEach((c) => { const d = duelsOf(c); if (!d) return; d.m.forEach((m) => { setOf[m].add(d.id); cardsOf[m].push(c); }); });
+  const [from, to] = windowRange();
+  // ---- participation: share of opening-hand card appearances that have the mechanic ----
+  let labels, shareAt;
+  if (gran === "week") {
+    const weeks = S.duels.weekly.filter((w) => (!from || addDays(w.week, 6) >= from) && (!to || w.week <= to));
+    labels = weeks.map((w) => w.week);
+    shareAt = (m) => weeks.map((w) => { let tot = 0, num = 0; for (const [cid, v] of Object.entries(w.cards)) { tot += v[0]; if (setOf[m].has(cid)) num += v[0]; } return tot ? num / tot * 100 : null; });
+  } else {
+    const eras = S.duels.eras;
+    labels = eras.map((e) => e.start);
+    shareAt = (m) => eras.map((e, i) => { let tot = 0, num = 0; S.duels.cards.forEach((d) => { const u = d.u[i]; if (!u) return; tot += u[0]; if (setOf[m].has(d.id)) num += u[0]; }); return tot ? num / tot * 100 : null; });
+  }
+  const allShares = mechs.map((_, m) => shareAt(m));
+  const lastOf = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; };
+  const firstOf = (arr) => arr.find((v) => v != null) ?? null;
+  let chosen = [...f.mechs].map(Number);
+  if (!chosen.length) chosen = mechs.map((_, m) => m).filter((m) => mechs[m].key !== "no_text").sort((a, b) => (lastOf(allShares[b]) || 0) - (lastOf(allShares[a]) || 0)).slice(0, 5);
+  chosen = chosen.slice(0, 6);
+  const col = seriesColors();
+  const r1 = (v) => v == null ? null : Math.round(v * 100) / 100;
+  const pctF = (v) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
+  $("mech-note").textContent = (gran === "week"
+    ? `Semanas do ranqueado Core BO1 do Duels.ink desde a rotação (12/07/2026), recortadas pela janela do filtro (${windowText()}). A primeira e a última semana podem estar incompletas.`
+    : "Uma medição por expansão (Set 11 a Set 14), sem recorte de janela.")
+    + ` Participação = % das cartas que apareceram nas mãos iniciais que têm a mechanic (todas as partidas; os filtros de tinta, raridade, formato etc. definem quais cartas contam). ${f.mechs.size ? "" : "Sem mechanic no filtro: mostrando as 5 com maior participação atual."}`;
+  multiLineChart("c-mech-share", labels, chosen.map((m, i) => ({ name: mechs[m].label, color: col[i], values: allShares[m].map(r1) })), pctF, gran === "era" ? S.duels.eras.map((e) => e.name) : null);
+
+  // ---- price index per mechanic (100 = start of the period) ----
+  const gids = [...new Set(rows.filter((c) => duelsOf(c)).map((c) => c.set))];
+  if (!gids.every((g) => histNow(g))) { $("mech-price-note").textContent = "Carregando histórico de preços…"; await loadHistories(gids); if (my !== mechToken) return; }
+  const h0 = histNow(gids[0]);
+  let pdates;
+  if (gran === "week") { const start = from || labels[0] || h0.dates[0]; pdates = h0.dates.filter((d) => d >= start && (!to || d <= to)); }
+  else pdates = S.duels.eras.map((e) => e.start).concat([S.latest]);
+  const tdays = pdates.map(day);
+  const idxMap = h0.days ? tdays.map((t) => { let i = h0.days.length - 1; while (i >= 0 && h0.days[i] > t) i--; return i; }) : [];
+  const valAt = (arr, k) => { const i = idxMap[k]; for (let j = i; j >= 0 && tdays[k] - h0.days[j] <= CARRY_DAYS; j--) if (arr[j]) return arr[j]; return null; };
+  const indexOf = (m) => {
+    const base = new Map();
+    cardsOf[m].forEach((c) => { const h = histNow(c.set), arr = h && h.s[c.id]; if (!arr) return; const b = valAt(arr, 0); if (b) base.set(c, arr); });
+    return pdates.map((_, k) => { let num = 0, den = 0; base.forEach((arr, c) => { const v = valAt(arr, k); if (v) { num += v; den += valAt(arr, 0); } }); return den ? num / den * 100 : null; });
+  };
+  const allIdx = new Map(); const idx = (m) => { if (!allIdx.has(m)) allIdx.set(m, indexOf(m)); return allIdx.get(m); };
+  $("mech-price-note").textContent = `Índice de preço (100 = ${fmtDate(pdates[0])}): soma dos preços atuais ÷ soma dos preços no início, só com as cartas que tinham preço nas duas datas. Respeita os filtros de carta (tinta, raridade, impressão, formato…).`;
+  multiLineChart("c-mech-price", pdates, chosen.map((m, i) => ({ name: mechs[m].label, color: col[i], values: idx(m).map(r1) })), (v) => Number(v).toLocaleString("pt-BR"), gran === "era" ? S.duels.eras.map((e) => e.name).concat(["Hoje"]) : null);
+
+  // ---- summary table (all mechanics) ----
+  const rowsT = mechs.map((mm, m) => { const sh = allShares[m], ix = idx(m), s0 = firstOf(sh), s1 = lastOf(sh), i1 = lastOf(ix);
+    return { m, name: mm.label, group: mm.group, n: setOf[m].size, s0, s1, dShare: s0 != null && s1 != null ? s1 - s0 : null, px: i1 != null ? i1 - 100 : null }; }).filter((r) => r.n);
+  const { key, dir } = S.mechSort;
+  rowsT.sort((a, b) => { const x = a[key], y = b[key]; if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return (x > y ? 1 : x < y ? -1 : 0) * dir; });
+  const tbl = $("t-mech"); tbl.replaceChildren();
+  const hr = tbl.createTHead().insertRow();
+  [["name", "Mechanic"], ["group", "Grupo"], ["n", "Cartas"], ["s0", "Participação no início"], ["s1", "Participação no fim"], ["dShare", "Δ participação"], ["px", "Variação de preço"]].forEach(([k, l]) => {
+    const th = el("th", ["name", "group"].includes(k) ? "" : "num", l); th.tabIndex = 0; if (key === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending");
+    th.onclick = () => { S.mechSort = { key: k, dir: S.mechSort.key === k ? -S.mechSort.dir : (["name", "group"].includes(k) ? 1 : -1) }; renderMechs(); }; hr.append(th); });
+  const b = tbl.createTBody();
+  rowsT.forEach((r) => { const tr = b.insertRow(); tr.tabIndex = 0;
+    const ci = chosen.indexOf(r.m); if (ci >= 0) tr.style.boxShadow = `inset 4px 0 0 ${col[ci]}`;
+    tr.onclick = () => filterBy("mech", r.m);
+    tr.insertCell().textContent = r.name; tr.insertCell().textContent = r.group;
+    numCell(tr, r.n.toLocaleString("pt-BR")); numCell(tr, r.s0 == null ? "–" : pctF(r.s0)); numCell(tr, r.s1 == null ? "–" : pctF(r.s1));
+    const d = numCell(tr, r.dShare == null ? "–" : (r.dShare > 0 ? "+" : "") + r.dShare.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + " p.p."); if (r.dShare) d.className += r.dShare > 0 ? " up" : " down";
+    const p = numCell(tr, pctTxt(r.px == null ? null : Math.round(r.px * 10) / 10)); if (r.px) p.className += r.px > 0 ? " up" : " down"; });
+}
+
+function multiLineChart(id, labels, series, yfmt, eraLabels) {
+  const o = baseOpts();
+  const ts = (d) => Date.parse(d + "T12:00:00Z");
+  const xs = labels.map(ts);
+  o.layout = { padding: { top: 18 } };
+  o.interaction = { mode: "index", intersect: false };
+  o.plugins.legend = { display: true, position: "top", align: "start", labels: { boxWidth: 14, boxHeight: 2, color: css("--text-secondary") } };
+  o.plugins.tooltip.displayColors = true;
+  o.plugins.tooltip.callbacks = {
+    title: (it) => eraLabels ? eraLabels[it[0].dataIndex] + " (" + fmtDate(labels[it[0].dataIndex]) + ")" : (labels[0] && S.view.mechGran === "week" && labels.length < 40 ? "semana de " : "") + fmtDate(labels[it[0].dataIndex]),
+    label: (ctx) => `${ctx.dataset.label}: ${yfmt(ctx.parsed.y)}`,
+  };
+  const pad = eraLabels ? 20 * 864e5 : 0;
+  o.scales.x = { type: "linear", min: xs[0] - pad, max: xs[xs.length - 1] + pad, grid: { display: false }, border: { display: false },
+    ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (v) => { const d = new Date(v); return String(d.getUTCDate()).padStart(2, "0") + "/" + String(d.getUTCMonth() + 1).padStart(2, "0"); } } };
+  o.scales.y.ticks = { callback: (v) => yfmt(v) }; o.scales.y.grace = "8%";
+  o.plugins.evlines = { items: eventItems() };
+  const ds = series.map((s) => ({ label: s.name, data: s.values.map((y, i) => ({ x: xs[i], y })), parsing: false, borderColor: s.color, backgroundColor: s.color,
+    borderWidth: 2, pointRadius: xs.length < 30 ? 3 : 0, pointHoverRadius: 5, pointBorderColor: css("--surface-1"), pointBorderWidth: 2, spanGaps: true, tension: 0 }));
+  upsert(id, { type: "line", data: { datasets: ds }, options: o, plugins: [crosshair, evlines] });
 }
 
 /* ---------- charts (Chart.js) ---------- */
