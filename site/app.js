@@ -18,8 +18,8 @@ const S = {
   histories: new Map(),
   filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), printing: "", min: 0, q: "" },
   duels: null, duelsByPid: new Map(), duelsById: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
-  deckSort: { key: "wr", dir: -1 }, muSort: { key: "games", dir: -1 }, selDeck: null, deckMin: 2000,
-  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", gran: "monthly", ev: { rel: true, rot: true } },
+  deckSort: { key: "wr", dir: -1 }, muSort: { key: "games", dir: -1 }, selDeck: null, /* deck key */ deckMin: 2000,
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
@@ -50,7 +50,12 @@ async function init() {
   try {
     S.duels = await getJSON("data/duels.json");
     S.duels.cards.forEach((d) => { S.duelsById.set(d.id, d); d.pids.forEach((pid) => S.duelsByPid.set(pid, d)); });
-    if (S.duels.decks) { S.dcur = S.duels.decks.eras[S.duels.decks.current]; S.dprev = S.duels.decks.eras[S.duels.decks.previous]; }
+    if (S.duels.decks) {
+      S.dcur = S.duels.decks.eras[S.duels.decks.current]; S.dprev = S.duels.decks.eras[S.duels.decks.previous];
+      S.view.deckEra = S.duels.decks.current;
+      const eraName = Object.fromEntries(S.duels.eras.map((e) => [e.key, e.name]));
+      $("deck-era-seg").replaceChildren(...(S.duels.decks.order || [S.duels.decks.current]).map((k) => { const b = el("button", null, eraName[k] || k); b.type = "button"; b.dataset.v = k; return b; }));
+    }
     document.querySelectorAll("[data-duels]").forEach((e) => e.hidden = false);
   } catch (e) { S.duels = null; }
   $("updated").textContent = `Preços de ${fmtDate(S.latest)} · ${S.cards.length.toLocaleString("pt-BR")} cartas/impressões · histórico desde ${fmtDate(S.first)}`;
@@ -671,59 +676,92 @@ function deckCost(d) { let t = 0, missing = 0; Object.entries(d.list).forEach(([
 function inkDots(colors) { const sp = el("span"); colors.forEach((c) => { const i = el("i"); i.style.cssText = `display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;background:${INK_COLOR[c] || "#999"}`; sp.append(i); }); return sp; }
 const wrClass = (w) => w > 0.52 ? " up" : w < 0.48 ? " down" : "";
 
+function eraOrder() { return (S.duels.decks.order || [S.duels.decks.current]); }
+function eraInfo(k) { return S.duels.eras.find((e) => e.key === k) || { key: k, name: k }; }
+function deckEraData(k) { return S.duels.decks.eras[k]; }
+function prevEraKey(k) { const o = eraOrder(), i = o.indexOf(k); return i > 0 ? o[i - 1] : null; }
+
 function renderDecks() {
   if (!S.dcur) return;
   syncView();
-  const total = S.dcur.totalGames, pred = deckPred(), byColors = S.view.deckView === "colors";
+  const ek = S.view.deckEra || S.duels.decks.current, era = deckEraData(ek), pk = prevEraKey(ek), prev = pk && deckEraData(pk);
+  const total = era.totalGames, pred = deckPred(), byColors = S.view.deckView === "colors";
   const tbl = $("t-decks"); tbl.replaceChildren();
+  const f = S.filter;
   let rows;
   if (byColors) {
-    const f = S.filter;
-    rows = S.dcur.colorPairs.filter((p) => p.games >= S.deckMin && (!f.inks.size || p.colors.some((c) => f.inks.has(c))))
-      .map((p) => ({ name: p.colors.join("/"), colors: p.colors, games: p.games, play: p.games / (2 * total), wr: p.wins / p.games }));
+    const prevBy = new Map((prev ? prev.colorPairs : []).map((p) => [p.colors.join("/"), p]));
+    rows = era.colorPairs.filter((p) => p.games >= S.deckMin && (!f.inks.size || p.colors.some((c) => f.inks.has(c))))
+      .map((p) => { const q = prevBy.get(p.colors.join("/")); const play = p.games / (2 * total), wr = p.wins / p.games;
+        return { key: p.colors.join("/"), name: p.colors.join("/"), colors: p.colors, games: p.games, play, wr,
+          dPlay: q ? play - q.games / (2 * prev.totalGames) : null, dWr: q ? wr - q.wins / q.games : null }; });
   } else {
-    rows = S.dcur.decks.map((d, i) => ({ i, d, name: d.name, colors: d.colors, games: d.games, play: d.games / (2 * total), wr: d.wins / d.games, cost: deckCost(d).t }))
-      .filter((r) => r.games >= S.deckMin && (S.filter.decks.size ? true : pred(r.d)));
+    const prevBy = new Map((prev ? prev.decks : []).map((d) => [d.key, d]));
+    rows = era.decks.map((d) => { const q = prevBy.get(d.key), play = d.games / (2 * total), wr = d.wins / d.games, named = !d.key.endsWith("|outros");
+        return { key: d.key, d, name: d.name, colors: d.colors, games: d.games, play, wr, cost: deckCost(d).t,
+          dPlay: q && named ? play - q.games / (2 * prev.totalGames) : null, dWr: q && named ? wr - q.wins / q.games : null }; })
+      .filter((r) => r.games >= S.deckMin && (f.decks.size ? true : pred(r.d)));
   }
-  const cols = byColors ? [["rank", "#"], ["name", "Cores"], ["games", "Partidas"], ["play", "Presença"], ["wr", "Win rate"]]
-    : [["rank", "#"], ["name", "Deck"], ["games", "Partidas"], ["play", "Presença"], ["wr", "Win rate"], ["cost", "Custo da lista"]];
+  const pn = pk ? eraInfo(pk).name : null;
+  const cols = [["rank", "#"], ["name", byColors ? "Cores" : "Deck"], ["games", "Partidas"], ["play", "Presença"]]
+    .concat(pk ? [["dPlay", `Δ presença vs ${pn}`]] : []).concat([["wr", "Win rate"]]).concat(pk ? [["dWr", `Δ win rate vs ${pn}`]] : [])
+    .concat(byColors ? [] : [["cost", "Custo da lista"]]);
   const { key, dir } = S.deckSort;
   const sk = cols.some((c) => c[0] === key) && key !== "rank" ? key : "wr";
-  rows.sort((a, b) => { const x = a[sk], y = b[sk]; return (x > y ? 1 : x < y ? -1 : 0) * (sk === key ? dir : -1); });
-  $("decks-count").textContent = `· ${rows.length} ${byColors ? "combinações" : "decks"} · ${S.duels.eras[S.duels.eras.length - 1].name}`;
-  $("decks-note").textContent = byColors
+  rows.sort((a, b) => { const x = a[sk], y = b[sk]; if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+    return (x > y ? 1 : x < y ? -1 : 0) * (sk === key ? dir : -1); });
+  $("decks-count").textContent = `· ${rows.length} ${byColors ? "combinações" : "decks"} · ${eraInfo(ek).name}`;
+  $("decks-note").textContent = (byColors
     ? "Win rate de cada combinação de tintas no ranqueado Core BO1 do Duels.ink. Clique numa linha para filtrar essas tintas e ver os decks delas."
-    : `Decks do Duels.ink (arquétipos; builds do mesmo arquétipo somadas). Presença = fração dos decks jogados. Custo da lista = cópias típicas arredondadas × preço da impressão mais barata (normal quando há). Clique num deck para ver os confrontos e a lista. Respeita o filtro de tinta e de deck.`;
+    : "Decks do Duels.ink (arquétipos; builds com o mesmo nome somadas). Custo da lista = cópias típicas arredondadas × preço atual da impressão mais barata. Clique num deck para ver a evolução, os confrontos e a lista.")
+    + (pk ? ` Δ compara com a ${pn}. Nas expansões antigas o Duels.ink nomeava menos arquétipos, então decks "Outros" não são comparados.` : "");
   const hr = tbl.createTHead().insertRow();
   cols.forEach(([k, t]) => { const th = el("th", ["rank", "name"].includes(k) ? "" : "num", t);
     if (k !== "rank") { th.tabIndex = 0; if (sk === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending");
       th.onclick = () => { S.deckSort = { key: k, dir: S.deckSort.key === k ? -S.deckSort.dir : (k === "name" ? 1 : -1) }; renderDecks(); }; }
     hr.append(th); });
+  const pp = (v) => v == null ? "–" : (v > 0 ? "+" : "") + (v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " p.p.";
   const body = tbl.createTBody();
   rows.forEach((r, n) => {
     const tr = body.insertRow(); tr.tabIndex = 0;
-    if (!byColors && S.selDeck === r.i) tr.style.background = "var(--accent-wash)";
+    if (!byColors && S.selDeck === r.key) tr.style.background = "var(--accent-wash)";
     tr.onclick = tr.onkeydown = (e) => { if (e.type !== "click" && e.key !== "Enter") return;
       if (byColors) { S.filter.inks = new Set(r.colors); S.view.deckView = "deck"; changed(); }
-      else { S.selDeck = r.i; renderDecks(); $("deck-detail").scrollIntoView({ behavior: "smooth", block: "start" }); } };
+      else { S.selDeck = r.key; renderDecks(); $("deck-evo").scrollIntoView({ behavior: "smooth", block: "start" }); } };
     tr.insertCell().textContent = n + 1;
     const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(r.colors), document.createTextNode(r.name));
     if (!byColors && r.d.builds > 1) nc.append(el("small", null, `${r.d.builds} builds`));
     numCell(tr, r.games.toLocaleString("pt-BR")); numCell(tr, pct1(r.play));
+    if (pk) { const td = numCell(tr, pp(r.dPlay)); if (r.dPlay) td.className += r.dPlay > 0 ? " up" : " down"; }
     const w = numCell(tr, pct1(r.wr)); w.className += wrClass(r.wr);
+    if (pk) { const td = numCell(tr, pp(r.dWr)); if (r.dWr) td.className += r.dWr > 0 ? " up" : " down"; }
     if (!byColors) numCell(tr, usd0(r.cost));
   });
   renderDeckDetail();
 }
 
 function renderDeckDetail() {
-  const box = $("deck-detail");
-  if (S.view.deckView !== "deck" || S.selDeck == null) { box.hidden = true; return; }
+  const box = $("deck-detail"), evo = $("deck-evo");
+  if (S.view.deckView !== "deck" || S.selDeck == null) { box.hidden = true; evo.hidden = true; return; }
+  const ek = S.view.deckEra || S.duels.decks.current, era = deckEraData(ek);
+  // evolution across eras (one chart per measure)
+  const order = eraOrder(), name = (S.dcur.decks.find((d) => d.key === S.selDeck) || era.decks.find((d) => d.key === S.selDeck) || { name: S.selDeck }).name;
+  const pts = order.map((k) => { const e = deckEraData(k), d = e.decks.find((x) => x.key === S.selDeck), info = eraInfo(k);
+    return { date: info.start, play: d ? Math.round(d.games / (2 * e.totalGames) * 1000) / 10 : null, wr: d ? Math.round(d.wins / d.games * 1000) / 10 : null, n: d ? Math.round(d.games / 2) : null }; });
+  evo.hidden = false;
+  $("de-title-play").textContent = `Presença: ${name}`; $("de-title-wr").textContent = `Win rate: ${name}`;
+  const pctFmt = (v) => Number(v).toLocaleString("pt-BR") + "%";
+  lineChart("c-deck-play", pts.map((p) => p.date), pts.map((p) => p.play), "Presença", { counts: pts.map((p) => p.n), yfmt: pctFmt, eraLabels: order.map((k) => eraInfo(k).name) });
+  lineChart("c-deck-wr", pts.map((p) => p.date), pts.map((p) => p.wr), "Win rate", { counts: pts.map((p) => p.n), yfmt: pctFmt, eraLabels: order.map((k) => eraInfo(k).name) });
+  const d = era.decks.find((x) => x.key === S.selDeck);
+  if (!d) { box.hidden = true; return; }
   box.hidden = false;
-  const d = S.dcur.decks[S.selDeck];
-  $("dd-title-mu").textContent = `Confrontos: ${d.name}`;
-  $("dd-note-mu").textContent = `Win rate de ${d.name} contra cada deck (mínimo de 30 partidas). Win rate geral: ${pct1(d.wins / d.games)} em ${d.games.toLocaleString("pt-BR")} partidas.`;
-  const mus = S.dcur.matchups.filter((m) => m[0] === S.selDeck && m[2] >= 30).map((m) => ({ o: S.dcur.decks[m[1]], games: m[2], wr: m[3] / m[2], mirror: m[1] === S.selDeck }));
+  const idx = era.decks.indexOf(d);
+  $("dd-title-mu").textContent = `Confrontos: ${d.name} (${eraInfo(ek).name})`;
+  const mus = (era.matchups || []).filter((m) => m[0] === idx && m[2] >= 30).map((m) => ({ o: era.decks[m[1]], games: m[2], wr: m[3] / m[2], mirror: m[1] === idx }));
+  $("dd-note-mu").textContent = mus.length
+    ? `Win rate de ${d.name} contra cada deck (mínimo de 30 partidas). Win rate geral: ${pct1(d.wins / d.games)} em ${d.games.toLocaleString("pt-BR")} partidas.`
+    : "O Duels.ink não tem confrontos por deck nesta expansão.";
   const { key, dir } = S.muSort;
   mus.sort((a, b) => { const x = key === "name" ? a.o.name : a[key], y = key === "name" ? b.o.name : b[key]; return (x > y ? 1 : x < y ? -1 : 0) * dir; });
   const t = $("t-mu"); t.replaceChildren();
@@ -735,11 +773,10 @@ function renderDeckDetail() {
   mus.forEach((m) => { const tr = b.insertRow(); tr.style.cursor = "default";
     const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(m.o.colors), document.createTextNode(m.o.name + (m.mirror ? " (espelho)" : "")));
     numCell(tr, m.games.toLocaleString("pt-BR")); const w = numCell(tr, pct1(m.wr)); w.className += wrClass(m.wr); });
-  // typical list with prices
-  $("dd-title-list").textContent = `Lista típica: ${d.name}`;
+  $("dd-title-list").textContent = `Lista típica: ${d.name} (${eraInfo(ek).name})`;
   const items = Object.entries(d.list).map(([cid, cp]) => ({ cid, cp, n: Math.round(cp), c: cardForCid(cid) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || ((b.c?.price || 0) - (a.c?.price || 0)));
   const tot = items.reduce((a, x) => a + (x.c ? x.n * x.c.price : 0), 0);
-  $("dd-note-list").textContent = `Cópias médias da lista típica (arredondadas), com o preço da impressão mais barata. Total: ${usd0(tot)} para ${items.reduce((a, x) => a + x.n, 0)} cartas. Clique numa carta para ver o histórico.`;
+  $("dd-note-list").textContent = `Cópias médias da lista típica (arredondadas), com o preço atual da impressão mais barata. Total: ${usd0(tot)} para ${items.reduce((a, x) => a + x.n, 0)} cartas. Clique numa carta para ver o histórico.`;
   const lt = $("t-list"); lt.replaceChildren();
   const lh = lt.createTHead().insertRow(); ["", "Carta", "Cópias", "Preço", "Subtotal"].forEach((h, i) => lh.append(el("th", i > 1 ? "num" : "", h)));
   const lb = lt.createTBody();
@@ -785,7 +822,7 @@ function barChart(id, labels, datasets, { horizontal = false, log = false, stack
   }));
   upsert(id, { type: "bar", data: { labels, datasets: ds }, options: o });
 }
-function lineChart(id, labels, values, name, { counts } = {}) {
+function lineChart(id, labels, values, name, { counts, yfmt, eraLabels } = {}) {
   const o = baseOpts();
   const ts = (d) => Date.parse((d.length === 7 ? d + "-15" : d) + "T12:00:00Z");
   const data = labels.map((d, i) => ({ x: ts(d), y: values[i] ?? null, d, n: counts ? counts[i] : null }));
@@ -795,14 +832,15 @@ function lineChart(id, labels, values, name, { counts } = {}) {
   o.interaction = { mode: "nearest", axis: "x", intersect: false };
   o.scales.x = { type: "linear", min: xmin, max: xmax, grid: { display: false }, border: { display: false },
     ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (v) => mo(v) } };
-  o.scales.y.ticks = { callback: (v) => "$" + Number(v).toLocaleString("pt-BR") };
+  o.scales.y.ticks = { callback: (v) => yfmt ? yfmt(v) : "$" + Number(v).toLocaleString("pt-BR") };
   o.plugins.tooltip.callbacks = {
-    title: (it) => { const d = it[0].raw.d; return d.length === 7 ? "fim de " + d.slice(5) + "/" + d.slice(0, 4) : fmtDate(d); },
-    label: (ctx) => usd(ctx.parsed.y),
-    afterLabel: (ctx) => ctx.raw.n ? `${ctx.raw.n.toLocaleString("pt-BR")} cartas` : "",
+    title: (it) => { if (eraLabels) return eraLabels[it[0].dataIndex] + " (desde " + fmtDate(it[0].raw.d) + ")"; const d = it[0].raw.d; return d.length === 7 ? "fim de " + d.slice(5) + "/" + d.slice(0, 4) : fmtDate(d); },
+    label: (ctx) => yfmt ? yfmt(ctx.parsed.y) : usd(ctx.parsed.y),
+    afterLabel: (ctx) => ctx.raw.n ? `${ctx.raw.n.toLocaleString("pt-BR")} ${eraLabels ? "partidas" : "cartas"}` : "",
   };
   o.plugins.evlines = { items: eventItems() };
-  const ds = { label: name, data, parsing: false, borderColor: css("--series-1"), borderWidth: 2, pointRadius: data.length < 40 ? 3 : 0, pointHoverRadius: 5,
+  if (eraLabels) { const pad = 20 * 864e5; o.scales.x.min = xmin - pad; o.scales.x.max = xmax + pad; o.scales.y.grace = "15%"; }
+  const ds = { label: name, data, parsing: false, borderColor: css("--series-1"), borderWidth: 2, pointRadius: data.length < 40 ? (eraLabels ? 5 : 3) : 0, pointHoverRadius: 5,
     pointBackgroundColor: css("--series-1"), pointBorderColor: css("--surface-1"), pointBorderWidth: 2, spanGaps: true, tension: 0 };
   upsert(id, { type: "line", data: { datasets: [ds] }, options: o, plugins: [crosshair, evlines] });
 }

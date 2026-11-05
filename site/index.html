@@ -157,6 +157,7 @@
       <div class="row-between">
         <h2>Ranking por win rate <span class="muted" id="decks-count"></span></h2>
         <div class="controls">
+          <div class="seg" role="group" aria-label="Expansão" data-ctl="deckEra" id="deck-era-seg"></div>
           <div class="seg" role="group" aria-label="Agrupar" data-ctl="deckView">
             <button type="button" data-v="deck">Por deck</button><button type="button" data-v="colors">Por cores</button>
           </div>
@@ -166,6 +167,10 @@
       <p class="muted small" id="decks-note"></p>
       <div class="table-wrap"><table class="t sortable" id="t-decks"></table></div>
     </article>
+    <div class="grid2" id="deck-evo" hidden>
+      <article class="card"><h2 id="de-title-play"></h2><p class="muted small">Fração dos decks jogados em cada expansão do ranqueado Core BO1 (Duels.ink).</p><div class="chart" style="height:240px"><canvas id="c-deck-play"></canvas></div></article>
+      <article class="card"><h2 id="de-title-wr"></h2><p class="muted small">Win rate em cada expansão. Linhas tracejadas: lançamentos; vermelhas: rotações.</p><div class="chart" style="height:240px"><canvas id="c-deck-wr"></canvas></div></article>
+    </div>
     <div class="grid2" id="deck-detail" hidden>
       <article class="card"><h2 id="dd-title-mu"></h2><p class="muted small" id="dd-note-mu"></p><div class="table-wrap"><table class="t sortable" id="t-mu"></table></div></article>
       <article class="card"><h2 id="dd-title-list"></h2><p class="muted small" id="dd-note-list"></p><div class="table-wrap"><table class="t" id="t-list"></table></div></article>
