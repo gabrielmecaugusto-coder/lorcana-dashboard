@@ -21,6 +21,7 @@
     <button role="tab" data-tab="movers">Variações</button>
     <button role="tab" data-tab="cards">Cartas</button>
     <button role="tab" data-tab="meta" data-duels hidden>Meta × preço</button>
+    <button role="tab" data-tab="decks" data-duels hidden>Decks</button>
   </nav>
 </header>
 
@@ -51,6 +52,7 @@
   <div class="f inks" id="f-inks" role="group" aria-label="Cor de tinta"></div>
   <div class="f"><span>Raridade</span><div class="ms" id="f-rarity"></div></div>
   <div class="f" data-duels hidden><span>Mechanic</span><div class="ms" id="f-mech"></div></div>
+  <div class="f" data-duels hidden><span>Deck</span><div class="ms" id="f-deck"></div></div>
   <label class="f">Impressão
     <select id="f-printing">
       <option value="">Todas</option>
@@ -148,6 +150,26 @@
       <p class="muted small" id="meta-note"></p>
       <div class="table-wrap"><table class="t sortable" id="t-meta"></table></div>
     </article>
+  </section>
+
+  <section id="tab-decks" class="tab" hidden>
+    <article class="card">
+      <div class="row-between">
+        <h2>Ranking por win rate <span class="muted" id="decks-count"></span></h2>
+        <div class="controls">
+          <div class="seg" role="group" aria-label="Agrupar" data-ctl="deckView">
+            <button type="button" data-v="deck">Por deck</button><button type="button" data-v="colors">Por cores</button>
+          </div>
+          <label class="check">Mín. de partidas <input type="number" id="decks-min" min="0" step="500" value="2000" style="width:90px"></label>
+        </div>
+      </div>
+      <p class="muted small" id="decks-note"></p>
+      <div class="table-wrap"><table class="t sortable" id="t-decks"></table></div>
+    </article>
+    <div class="grid2" id="deck-detail" hidden>
+      <article class="card"><h2 id="dd-title-mu"></h2><p class="muted small" id="dd-note-mu"></p><div class="table-wrap"><table class="t sortable" id="t-mu"></table></div></article>
+      <article class="card"><h2 id="dd-title-list"></h2><p class="muted small" id="dd-note-list"></p><div class="table-wrap"><table class="t" id="t-list"></table></div></article>
+    </div>
   </section>
 
   <section id="tab-cards" class="tab" hidden>

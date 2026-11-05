@@ -16,9 +16,10 @@ const PAGE = 50;
 const S = {
   cards: [], sets: [], setsById: new Map(), events: { releases: [], rotations: [] }, latest: null, first: null,
   histories: new Map(),
-  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), printing: "", min: 0, q: "" },
-  duels: null, duelsByPid: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
-  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", gran: "monthly", ev: { rel: true, rot: true } },
+  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), printing: "", min: 0, q: "" },
+  duels: null, duelsByPid: new Map(), duelsById: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
+  deckSort: { key: "wr", dir: -1 }, muSort: { key: "games", dir: -1 }, selDeck: null, deckMin: 2000,
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
@@ -48,7 +49,8 @@ async function init() {
   // Optional Duels.ink data: present only in the private build.
   try {
     S.duels = await getJSON("data/duels.json");
-    S.duels.cards.forEach((d) => d.pids.forEach((pid) => S.duelsByPid.set(pid, d)));
+    S.duels.cards.forEach((d) => { S.duelsById.set(d.id, d); d.pids.forEach((pid) => S.duelsByPid.set(pid, d)); });
+    if (S.duels.decks) { S.dcur = S.duels.decks.eras[S.duels.decks.current]; S.dprev = S.duels.decks.eras[S.duels.decks.previous]; }
     document.querySelectorAll("[data-duels]").forEach((e) => e.hidden = false);
   } catch (e) { S.duels = null; }
   $("updated").textContent = `Preços de ${fmtDate(S.latest)} · ${S.cards.length.toLocaleString("pt-BR")} cartas/impressões · histórico desde ${fmtDate(S.first)}`;
@@ -90,6 +92,8 @@ function buildFilters() {
   S.ms.sets = multiSelect($("f-set"), [...S.sets].reverse().map((s) => [String(s.groupId), `${s.name} (${s.abbreviation})`]), f.sets, "Todas", changed);
   const rar = [...new Set(S.cards.map((c) => c.rarity).filter(Boolean))].sort((a, b) => rank(a) - rank(b));
   S.ms.rarities = multiSelect($("f-rarity"), rar.map((r) => [r, r]), f.rarities, "Todas", changed);
+  if (S.dcur) S.ms.decks = multiSelect($("f-deck"), [...S.dcur.decks].sort((a, b) => b.games - a.games).map((d) => [d.key, d.name]), f.decks, "Todos", changed);
+  $("decks-min").addEventListener("input", (e) => { S.deckMin = +e.target.value || 0; renderDecks(); });
   if (S.duels) S.ms.mechs = multiSelect($("f-mech"), S.duels.mechanics.map((m, i) => [String(i), `${m.group}: ${m.label}`]), f.mechs, "Todas", changed);
   INKS.forEach(([name, color]) => {
     const b = el("button", "ink"); b.type = "button"; b.setAttribute("aria-pressed", "false"); b.dataset.ink = name;
@@ -104,7 +108,7 @@ function buildFilters() {
   bind("f-printing", "printing"); bind("f-min", "min", "input", (v) => +v || 0);
   bind("f-q", "q", "input", (v) => v.trim().toLowerCase());
   $("f-reset").onclick = () => {
-    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear(); f.mechs.clear();
+    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear(); f.mechs.clear(); f.decks.clear();
     changed();
   };
   document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; changed(); });
@@ -127,7 +131,7 @@ function syncControls() {
   const f = S.filter;
   $("f-window").value = f.window; $("f-from").value = f.from; $("f-to").value = f.to; $("f-format").value = f.format;
   $("f-printing").value = f.printing; $("f-min").value = f.min; $("f-q").value = f.q;
-  S.ms.sets.sync(); S.ms.rarities.sync(); if (S.ms.mechs) S.ms.mechs.sync();
+  S.ms.sets.sync(); S.ms.rarities.sync(); if (S.ms.mechs) S.ms.mechs.sync(); if (S.ms.decks) S.ms.decks.sync();
   document.querySelectorAll(".ink").forEach((b) => b.setAttribute("aria-pressed", f.inks.has(b.dataset.ink)));
   document.querySelector(".custom-range").hidden = f.window !== "custom";
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === S.tab));
@@ -149,6 +153,7 @@ function writeHash() {
   if (f.inks.size) p.set("ink", [...f.inks].join(","));
   if (f.rarities.size) p.set("rar", [...f.rarities].join(","));
   if (f.mechs.size) p.set("mech", [...f.mechs].join(","));
+  if (f.decks.size) p.set("deck", [...f.decks].join(","));
   if (f.printing) p.set("pr", f.printing);
   if (f.min) p.set("min", f.min);
   if (f.q) p.set("q", f.q);
@@ -170,6 +175,7 @@ function readHash() {
   f.inks.clear(); list("ink").forEach((x) => f.inks.add(x));
   f.rarities.clear(); list("rar").forEach((x) => f.rarities.add(x));
   f.mechs.clear(); if (S.duels) list("mech").forEach((x) => f.mechs.add(x));
+  f.decks.clear(); if (S.dcur) list("deck").forEach((x) => f.decks.add(x));
   f.printing = p.get("pr") || ""; f.min = +(p.get("min") || 0); f.q = p.get("q") || "";
   v.evoMetric = p.get("evo") || "total"; v.group = p.get("grp") || "set"; v.distMetric = p.get("dm") || "total"; v.chgGroup = p.get("cg") || "ink";
   v.ev.rel = !p.get("norel"); v.ev.rot = !p.get("norot");
@@ -203,6 +209,7 @@ function passes(c) {
   if (f.inks.size && !inkList(c).some((i) => f.inks.has(i))) return false;
   if (f.rarities.size && !f.rarities.has(c.rarity)) return false;
   if (f.mechs.size) { const d = duelsOf(c); if (!d || !d.m.some((i) => f.mechs.has(String(i)))) return false; }
+  if (f.decks.size && S.dcur) { const d = duelsOf(c); if (!d || !selectedDeckCards().has(d.id)) return false; }
   if (f.printing && c.printing !== f.printing) return false;
   if (f.min && !(c.price >= f.min)) return false;
   if (f.q && !c.name.toLowerCase().includes(f.q)) return false;
@@ -251,6 +258,7 @@ function render() {
   if (S.tab === "movers") renderMovers(S.rows);
   if (S.tab === "cards") renderCards();
   if (S.tab === "meta") { S.metaPage = 0; renderMeta(); }
+  if (S.tab === "decks") renderDecks();
 }
 
 function renderOverview(rows) {
@@ -559,26 +567,68 @@ function renderDetailDuels(c) {
   box.append(t, el("p", "muted small", "Cópias/deck é um índice relativo (as partidas sem arquétipo identificado ficam de fora). Presença = fração dos decks cujo arquétipo usa a carta."));
 }
 
+/* Decks selected by the filters: explicit deck filter wins; otherwise ink filter
+   (1 ink = decks containing it; 2+ inks = decks whose colors are all among them); otherwise all. */
+function deckPred() {
+  const f = S.filter;
+  if (f.decks.size) return (d) => f.decks.has(d.key);
+  if (f.inks.size === 1) { const ink = [...f.inks][0]; return (d) => d.colors.includes(ink); }
+  if (f.inks.size > 1) return (d) => d.colors.every((c) => f.inks.has(c));
+  return () => true;
+}
+function deckScopeText() {
+  const f = S.filter;
+  if (f.decks.size) return f.decks.size === 1 ? S.dcur.decks.find((d) => f.decks.has(d.key))?.name || "deck selecionado" : `${f.decks.size} decks selecionados`;
+  if (f.inks.size === 1) return `decks com ${[...f.inks][0]}`;
+  if (f.inks.size > 1) return `decks ${[...f.inks].join("/")}`;
+  return "todos os decks";
+}
+let deckCardsCache = { key: "", set: new Set() };
+function selectedDeckCards() {
+  const key = [...S.filter.decks].sort().join(",");
+  if (deckCardsCache.key !== key) {
+    const set = new Set();
+    S.dcur.decks.filter((d) => S.filter.decks.has(d.key)).forEach((d) => Object.keys(d.list).forEach((c) => set.add(c)));
+    deckCardsCache = { key, set };
+  }
+  return deckCardsCache.set;
+}
+/** Per-card usage within the decks that match pred: copies/deck (index), share of decks listing it, opener win rate. */
+function usageFor(era, pred) {
+  const decks = era.decks.filter(pred), G = decks.reduce((a, d) => a + d.games, 0);
+  const shareG = new Map(), n = new Map(), w = new Map();
+  decks.forEach((d) => {
+    Object.keys(d.list).forEach((c) => shareG.set(c, (shareG.get(c) || 0) + d.games));
+    Object.entries(d.open).forEach(([c, [k, won]]) => { n.set(c, (n.get(c) || 0) + k); w.set(c, (w.get(c) || 0) + won); });
+  });
+  const out = new Map();
+  new Set([...shareG.keys(), ...n.keys()]).forEach((c) => {
+    const k = n.get(c) || 0;
+    out.set(c, { copies: G ? k / G * 60 / 7 : 0, share: G ? (shareG.get(c) || 0) / G : 0, wr: k ? (w.get(c) || 0) / k : null });
+  });
+  return { G, decks: decks.length, byCard: out };
+}
+
 function renderMeta() {
-  if (!S.duels) return;
-  const eras = S.duels.eras, cur = eras.length - 1, prev = cur - 1;
-  // one row per Duels.ink card: use its Normal printing (or the cheapest one) for price
+  if (!S.duels || !S.dcur) return;
+  const eras = S.duels.eras, curEra = eras[eras.length - 1];
+  const pred = deckPred(), cur = usageFor(S.dcur, pred), prev = S.dprev ? usageFor(S.dprev, pred) : null;
+  // one row per Duels.ink card: its Normal printing (or the cheapest one) for price
   const byCard = new Map();
-  S.rows.forEach((c) => { const d = duelsOf(c); if (!d || !d.u[cur]) return;
+  S.rows.forEach((c) => { const d = duelsOf(c); if (!d) return; const u = cur.byCard.get(d.id); if (!u || (u.copies < 0.005 && u.share === 0)) return;
     const have = byCard.get(d); if (!have || (c.printing === "Normal" && have.printing !== "Normal") || (have.printing !== "Normal" && c.price < have.price)) byCard.set(d, c); });
   const gids = [...new Set([...byCard.values()].map((c) => c.set))];
-  const ready = gids.every((g) => histNow(g));
-  if (!ready) { $("meta-note").textContent = "Carregando histórico de preços…"; loadHistories(gids).then(() => S.tab === "meta" && renderMeta()); return; }
+  if (!gids.every((g) => histNow(g))) { $("meta-note").textContent = "Carregando histórico de preços…"; loadHistories(gids).then(() => S.tab === "meta" && renderMeta()); return; }
   const since = (c, iso) => { const h = histNow(c.set), then = h && priceAt(h, c.id, iso); return then && c.price ? Math.round((c.price / then - 1) * 1000) / 10 : null; };
   const rows = [...byCard].map(([d, c]) => {
-    const u = d.u[cur], p = d.u[prev];
-    return { c, d, use: u[0], share: u[1], wr: u[2], dUse: p ? u[0] - p[0] : null,
-      pxCur: since(c, eras[cur].start), pxPrev: since(c, eras[prev].start) };
+    const u = cur.byCard.get(d.id), p = prev && prev.byCard.get(d.id);
+    return { c, d, use: u.copies, share: u.share, wr: u.wr, dUse: p ? u.copies - p.copies : null,
+      pxCur: since(c, curEra.start), pxWin: change(c).pct };
   });
   const cols = [
-    ["img", ""], ["name", "Carta"], ["use", `Cópias/deck (${eras[cur].name})`], ["dUse", `Δ vs ${eras[prev].name}`],
+    ["img", ""], ["name", "Carta"], ["use", `Cópias/deck (${curEra.name})`], ["dUse", "Δ vs Set 13"],
     ["share", "Presença"], ["wr", "Vitória na mão inicial"], ["price", "Preço"],
-    ["pxCur", `Preço desde início da ${eras[cur].name}`], ["pxPrev", `Preço desde início da ${eras[prev].name}`],
+    ["pxCur", `Preço desde início da ${curEra.name}`], ["pxWin", `Preço: ${windowText()}`],
   ];
   const val = (r, k) => k === "name" ? r.c.name : k === "price" ? r.c.price : r[k];
   const { key, dir } = S.metaSort;
@@ -587,8 +637,8 @@ function renderMeta() {
     return (x > y ? 1 : x < y ? -1 : 0) * dir; });
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)); S.metaPage = Math.min(S.metaPage, pages - 1);
   $("mp-info").textContent = `${S.metaPage + 1} / ${pages}`;
-  $("meta-count").textContent = `· ${rows.length} cartas jogadas na ${eras[cur].name}`;
-  $("meta-note").textContent = `Uso no ranqueado Core BO1 do Duels.ink por expansão (${eras[cur].name}: desde ${fmtDate(eras[cur].start)}, ${eras[cur].games.toLocaleString("pt-BR")} partidas). Uma linha por carta, com o preço da impressão normal. Respeita os filtros. Clique nos títulos para ordenar.`;
+  $("meta-count").textContent = `· ${rows.length} cartas · uso em ${deckScopeText()}`;
+  $("meta-note").textContent = `Uso no ranqueado Core BO1 do Duels.ink em ${deckScopeText()} (${cur.decks} decks, ${Math.round(cur.G / 2).toLocaleString("pt-BR")} partidas na ${curEra.name}). Presença = fração desses decks cuja lista usa a carta. Filtrar tinta ou deck muda a base do cálculo. Uma linha por carta, com o preço da impressão normal; a última coluna segue a janela escolhida.`;
   const tbl = $("t-meta"); tbl.replaceChildren();
   const hr = tbl.createTHead().insertRow();
   cols.forEach(([k, t]) => { const th = el("th", ["img", "name"].includes(k) ? "" : "num", t);
@@ -603,8 +653,101 @@ function renderMeta() {
     numCell(tr, num2(r.use));
     const du = numCell(tr, r.dUse == null ? "novo" : (r.dUse > 0 ? "+" : "") + num2(r.dUse)); if (r.dUse) du.className += r.dUse > 0 ? " up" : " down";
     numCell(tr, pct1(r.share)); numCell(tr, pct1(r.wr)); numCell(tr, usd(r.c.price));
-    [r.pxCur, r.pxPrev].forEach((v) => { const td = numCell(tr, pctTxt(v)); if (v) td.className += v > 0 ? " up" : " down"; });
+    [r.pxCur, r.pxWin].forEach((v) => { const td = numCell(tr, pctTxt(v)); if (v) td.className += v > 0 ? " up" : " down"; });
   });
+}
+
+/* ---------- Decks tab ---------- */
+let priceByCidCache = null;
+function cardForCid(cid) {
+  if (!priceByCidCache) {
+    priceByCidCache = new Map();
+    S.cards.forEach((c) => { const d = duelsOf(c); if (!d || !c.price) return; const have = priceByCidCache.get(d.id);
+      if (!have || (c.printing === "Normal" && have.printing !== "Normal") || (have.printing !== "Normal" && c.price < have.price)) priceByCidCache.set(d.id, c); });
+  }
+  return priceByCidCache.get(cid) || null;
+}
+function deckCost(d) { let t = 0, missing = 0; Object.entries(d.list).forEach(([cid, cp]) => { const n = Math.round(cp); if (!n) return; const c = cardForCid(cid); if (c) t += n * c.price; else missing++; }); return { t, missing }; }
+function inkDots(colors) { const sp = el("span"); colors.forEach((c) => { const i = el("i"); i.style.cssText = `display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;background:${INK_COLOR[c] || "#999"}`; sp.append(i); }); return sp; }
+const wrClass = (w) => w > 0.52 ? " up" : w < 0.48 ? " down" : "";
+
+function renderDecks() {
+  if (!S.dcur) return;
+  syncView();
+  const total = S.dcur.totalGames, pred = deckPred(), byColors = S.view.deckView === "colors";
+  const tbl = $("t-decks"); tbl.replaceChildren();
+  let rows;
+  if (byColors) {
+    const f = S.filter;
+    rows = S.dcur.colorPairs.filter((p) => p.games >= S.deckMin && (!f.inks.size || p.colors.some((c) => f.inks.has(c))))
+      .map((p) => ({ name: p.colors.join("/"), colors: p.colors, games: p.games, play: p.games / (2 * total), wr: p.wins / p.games }));
+  } else {
+    rows = S.dcur.decks.map((d, i) => ({ i, d, name: d.name, colors: d.colors, games: d.games, play: d.games / (2 * total), wr: d.wins / d.games, cost: deckCost(d).t }))
+      .filter((r) => r.games >= S.deckMin && (S.filter.decks.size ? true : pred(r.d)));
+  }
+  const cols = byColors ? [["rank", "#"], ["name", "Cores"], ["games", "Partidas"], ["play", "Presença"], ["wr", "Win rate"]]
+    : [["rank", "#"], ["name", "Deck"], ["games", "Partidas"], ["play", "Presença"], ["wr", "Win rate"], ["cost", "Custo da lista"]];
+  const { key, dir } = S.deckSort;
+  const sk = cols.some((c) => c[0] === key) && key !== "rank" ? key : "wr";
+  rows.sort((a, b) => { const x = a[sk], y = b[sk]; return (x > y ? 1 : x < y ? -1 : 0) * (sk === key ? dir : -1); });
+  $("decks-count").textContent = `· ${rows.length} ${byColors ? "combinações" : "decks"} · ${S.duels.eras[S.duels.eras.length - 1].name}`;
+  $("decks-note").textContent = byColors
+    ? "Win rate de cada combinação de tintas no ranqueado Core BO1 do Duels.ink. Clique numa linha para filtrar essas tintas e ver os decks delas."
+    : `Decks do Duels.ink (arquétipos; builds do mesmo arquétipo somadas). Presença = fração dos decks jogados. Custo da lista = cópias típicas arredondadas × preço da impressão mais barata (normal quando há). Clique num deck para ver os confrontos e a lista. Respeita o filtro de tinta e de deck.`;
+  const hr = tbl.createTHead().insertRow();
+  cols.forEach(([k, t]) => { const th = el("th", ["rank", "name"].includes(k) ? "" : "num", t);
+    if (k !== "rank") { th.tabIndex = 0; if (sk === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending");
+      th.onclick = () => { S.deckSort = { key: k, dir: S.deckSort.key === k ? -S.deckSort.dir : (k === "name" ? 1 : -1) }; renderDecks(); }; }
+    hr.append(th); });
+  const body = tbl.createTBody();
+  rows.forEach((r, n) => {
+    const tr = body.insertRow(); tr.tabIndex = 0;
+    if (!byColors && S.selDeck === r.i) tr.style.background = "var(--accent-wash)";
+    tr.onclick = tr.onkeydown = (e) => { if (e.type !== "click" && e.key !== "Enter") return;
+      if (byColors) { S.filter.inks = new Set(r.colors); S.view.deckView = "deck"; changed(); }
+      else { S.selDeck = r.i; renderDecks(); $("deck-detail").scrollIntoView({ behavior: "smooth", block: "start" }); } };
+    tr.insertCell().textContent = n + 1;
+    const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(r.colors), document.createTextNode(r.name));
+    if (!byColors && r.d.builds > 1) nc.append(el("small", null, `${r.d.builds} builds`));
+    numCell(tr, r.games.toLocaleString("pt-BR")); numCell(tr, pct1(r.play));
+    const w = numCell(tr, pct1(r.wr)); w.className += wrClass(r.wr);
+    if (!byColors) numCell(tr, usd0(r.cost));
+  });
+  renderDeckDetail();
+}
+
+function renderDeckDetail() {
+  const box = $("deck-detail");
+  if (S.view.deckView !== "deck" || S.selDeck == null) { box.hidden = true; return; }
+  box.hidden = false;
+  const d = S.dcur.decks[S.selDeck];
+  $("dd-title-mu").textContent = `Confrontos: ${d.name}`;
+  $("dd-note-mu").textContent = `Win rate de ${d.name} contra cada deck (mínimo de 30 partidas). Win rate geral: ${pct1(d.wins / d.games)} em ${d.games.toLocaleString("pt-BR")} partidas.`;
+  const mus = S.dcur.matchups.filter((m) => m[0] === S.selDeck && m[2] >= 30).map((m) => ({ o: S.dcur.decks[m[1]], games: m[2], wr: m[3] / m[2], mirror: m[1] === S.selDeck }));
+  const { key, dir } = S.muSort;
+  mus.sort((a, b) => { const x = key === "name" ? a.o.name : a[key], y = key === "name" ? b.o.name : b[key]; return (x > y ? 1 : x < y ? -1 : 0) * dir; });
+  const t = $("t-mu"); t.replaceChildren();
+  const hr = t.createTHead().insertRow();
+  [["name", "Contra"], ["games", "Partidas"], ["wr", "Win rate"]].forEach(([k, l]) => { const th = el("th", k === "name" ? "" : "num", l); th.tabIndex = 0;
+    if (key === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending");
+    th.onclick = () => { S.muSort = { key: k, dir: S.muSort.key === k ? -S.muSort.dir : (k === "name" ? 1 : -1) }; renderDeckDetail(); }; hr.append(th); });
+  const b = t.createTBody();
+  mus.forEach((m) => { const tr = b.insertRow(); tr.style.cursor = "default";
+    const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(m.o.colors), document.createTextNode(m.o.name + (m.mirror ? " (espelho)" : "")));
+    numCell(tr, m.games.toLocaleString("pt-BR")); const w = numCell(tr, pct1(m.wr)); w.className += wrClass(m.wr); });
+  // typical list with prices
+  $("dd-title-list").textContent = `Lista típica: ${d.name}`;
+  const items = Object.entries(d.list).map(([cid, cp]) => ({ cid, cp, n: Math.round(cp), c: cardForCid(cid) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || ((b.c?.price || 0) - (a.c?.price || 0)));
+  const tot = items.reduce((a, x) => a + (x.c ? x.n * x.c.price : 0), 0);
+  $("dd-note-list").textContent = `Cópias médias da lista típica (arredondadas), com o preço da impressão mais barata. Total: ${usd0(tot)} para ${items.reduce((a, x) => a + x.n, 0)} cartas. Clique numa carta para ver o histórico.`;
+  const lt = $("t-list"); lt.replaceChildren();
+  const lh = lt.createTHead().insertRow(); ["", "Carta", "Cópias", "Preço", "Subtotal"].forEach((h, i) => lh.append(el("th", i > 1 ? "num" : "", h)));
+  const lb = lt.createTBody();
+  items.forEach((x) => { const tr = lb.insertRow();
+    if (x.c) { tr.tabIndex = 0; tr.onclick = () => openDetail(x.c); imgCell(tr, x.c); nameCell(tr, x.c); }
+    else { tr.insertCell(); tr.insertCell().textContent = x.cid; }
+    numCell(tr, x.cp.toLocaleString("pt-BR", { maximumFractionDigits: 1 }));
+    numCell(tr, usd(x.c?.price)); numCell(tr, x.c ? usd(x.n * x.c.price) : "–"); });
 }
 
 /* ---------- charts (Chart.js) ---------- */
