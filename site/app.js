@@ -439,6 +439,9 @@ function renderGroupChange(rows) {
   const label = (k) => g === "set" ? (S.setsById.get(k)?.name || k) : g === "mech" ? mechLabel(k) : k;
   const stats = keys.map((k) => { const a = acc.get(k), v = a.pcts.sort((x, y) => x - y);
     return { pct: Math.round((a.now / a.then - 1) * 1000) / 10, med: v[Math.floor(v.length / 2)], n: v.length, now: a.now, then: a.then }; });
+  // largest change on top
+  const ord = stats.map((st, i) => i).sort((a, b) => stats[b].pct - stats[a].pct);
+  keys = ord.map((i) => keys[i]); const sorted = ord.map((i) => stats[i]); stats.length = 0; stats.push(...sorted);
   $("grpchg-title").textContent = "Variação por " + (g === "ink" ? "tinta" : g === "rarity" ? "raridade" : g === "mech" ? "mechanic" : "coleção");
   $("grpchg-note").textContent = `Quanto variou o valor somado das cartas de cada grupo na janela (${windowText()}), contando só cartas com preço nas duas datas. A mediana da variação por carta aparece ao passar o mouse.`;
   $("grpchg-wrap").style.height = Math.max(260, keys.length * 30 + 60) + "px";
