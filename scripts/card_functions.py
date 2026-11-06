@@ -118,7 +118,10 @@ def classify_product(p):
     """-> (product, text, [(função, subfunção, habilidade, momento, trecho)])"""
     t = p.get('text') or ''; ctype = p.get('cardType')
     out = []  # (função, sub, habilidade, momento, segment)
+    own_reckless = ctype == 'Character' and re.search(r"(^|\n)\s*Reckless\b", t) is not None
     for kind, s in segments(t, ctype):
+        if kind != 'keyword':  # "chosen character with Evasive" / "your characters with Reckless" only mention the keyword
+            s = re.sub(r"\b(with|without|has|have|named) (Evasive|Reckless|Rush|Ward|Bodyguard|Resist|Challenger|Support|Singer|Shift|Alert|Boost)\b", r"\1 KW", s)
         hits = set()
         for f, sub, h, rx in RULES:
             if rx.search(s):
@@ -138,8 +141,10 @@ def classify_product(p):
             nd = (W.get(m1.group(1).lower()) or int(m1.group(1))) if m1 else 2
             if nd <= 1: hits.discard(('Draw', 'Card advantage', 'Comprar')); hits.add(('Draw', 'Filter', 'Repõe a si mesma'))
         if re.search(r"during your turn", s, I):  # defensive keywords only on your turn = built to attack
-            for h in [('Proteção / evasão', 'Defesa', 'Resist'), ('Proteção / evasão', 'Defesa', 'Ward'), ('Proteção / evasão', 'Defesa', 'Aumentar vontade')]:
+            for h in [('Proteção / evasão', 'Defesa', 'Resist'), ('Proteção / evasão', 'Defesa', 'Ward'), ('Proteção / evasão', 'Defesa', 'Aumentar vontade'), ('Proteção / evasão', 'Evasão', 'Imune a desafio')]:
                 if h in hits: hits.discard(h); hits.add(('Controle de mesa', 'Desafio', 'Bônus no seu turno'))
+        if own_reckless:  # a Reckless character's lore ability only compensates for not questing
+            hits.discard(('Pressão de lore', 'Lore', 'Ganhar lore'))
         if ('Draw', 'Card advantage', 'Buscar no deck') in hits: hits.discard(('Draw', 'Filter', 'Olha o topo / reordena'))
         mo = moment_of(kind, s, ctype)
         for f, sub, h in hits: out.append((f, sub, h, mo, s))
@@ -212,7 +217,7 @@ HABS_DESC = {
  'Evasive': 'Só pode ser desafiado por personagens com Evasive.', 'Imune a desafio': 'Não pode ser desafiado (ou não sofre dano) em certas condições.',
  'Ward': 'O oponente não pode escolhê-lo como alvo de efeitos.', 'Resist': 'Recebe menos dano.', 'Bodyguard': 'Pode entrar exaurido e protege os outros de desafios.',
  'Aumentar vontade': 'Dá vontade (willpower) a mais.', 'Remover dano': 'Remove dano dos seus personagens.', 'Lore alto e barato': 'Personagem que questa para 2 ou mais com custo efetivo baixo (o menor entre o custo e o Shift): lore ÷ custo de pelo menos 2/3. Ex.: lore 2 por custo 3, lore 3 com Shift 3.',
- 'Alert': 'Pode desafiar como se tivesse Evasive.', 'Bônus no seu turno': 'Ganha Resist, Ward ou vontade só durante o seu turno: é para atacar, não para se defender.', 'Repõe a si mesma': 'Ação ou música que só substitui a si mesma (comprar 1, ou comprar 2 e descartar 1): não gera carta a mais.',
+ 'Alert': 'Pode desafiar como se tivesse Evasive.', 'Bônus no seu turno': 'Ganha Resist, Ward, vontade ou imunidade a dano de desafio só durante o seu turno: é para atacar, não para se defender (Judy Hopps – Lead Detective, Mulan – Standing Her Ground).', 'Repõe a si mesma': 'Ação ou música que só substitui a si mesma (comprar 1, ou comprar 2 e descartar 1): não gera carta a mais.',
  'Vanilla': FUNCS_DESC['Corpo'], 'Outros': FUNCS_DESC['Outros'],
 }
 MOMENTS_DESC = {
