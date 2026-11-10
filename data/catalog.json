@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-09T20:06:00+0000",
+"updated": "2026-11-10T20:05:49+0000",
 "groups": [
 {
 "groupId": 17690,
@@ -51139,9 +51139,9 @@
 {
 "productId": 673338,
 "groupId": 23234,
-"name": "Beast - Snowfield Troublemaker",
+"name": "Beast - Snowfield Troublemaker (31/P3)",
 "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/673338_200w.jpg",
-"url": "https://www.tcgplayer.com/product/673338/lorcana-tcg-disney-lorcana-promo-cards-beast-snowfield-troublemaker",
+"url": "https://www.tcgplayer.com/product/673338/lorcana-tcg-disney-lorcana-promo-cards-beast-snowfield-troublemaker-31-p3",
 "rarity": "Promo",
 "number": "31",
 "text": "Rush (This character can challenge the turn they're played.)\r\n[Dynamic Maneuver] Whenever this character challenges, if he's at a location, he takes no damage from the challenge.",
@@ -75104,6 +75104,17 @@
 "text": "(This counter doesn't count as a card.)\r\nYou may remove this counter to pay 1 Ink.",
 "inkable": "No",
 "isSingle": false
+},
+{
+"productId": 732601,
+"groupId": 23234,
+"name": "Beast - Snowfield Troublemaker (1/PD1)",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/732601_200w.jpg",
+"url": "https://www.tcgplayer.com/product/732601/lorcana-tcg-disney-lorcana-promo-cards-beast-snowfield-troublemaker-1-pd1",
+"rarity": "Promo",
+"number": "1",
+"text": "Rush (This character can challenge the turn they're played.)\r\n[Dynamic Maneuver] Whenever this character challenges, if he's at a location, he takes no damage from the challenge.",
+"isSingle": true
 }
 ]
 }
