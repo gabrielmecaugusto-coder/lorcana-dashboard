@@ -146,6 +146,12 @@ def classify_product(p):
         if own_reckless:  # a Reckless character's lore ability only compensates for not questing
             hits.discard(('Pressão de lore', 'Lore', 'Ganhar lore'))
         if ('Draw', 'Card advantage', 'Buscar no deck') in hits: hits.discard(('Draw', 'Filter', 'Olha o topo / reordena'))
+        # cost cutting only counts when it helps YOU play cards: not moving to locations, not paying for another effect, not the opponent's free play
+        if ('Aceleração', 'Cortar custo', 'Reduzir custo') in hits and (re.search(r"less to move|to move [^.]*less", s, I) or not re.search(r"less (to play|to shift|to sing|for (the|your|each)\b)|costs? \d+ (\{I\} |ink )?less|\d+ less to play", s, I)):
+            hits.discard(('Aceleração', 'Cortar custo', 'Reduzir custo'))
+        if ('Aceleração', 'Cortar custo', 'Jogar de graça') in hits and ((re.search(r"\bmoves? [^.]*for free", s, I) and not re.search(r"\bplay (?!this character)(?:(?!move)[^.])*?for free", s, I)) or re.search(r"sing this song for free", s, I)
+                or re.search(r"(their|that) player may|each opponent may|opponents? may (reveal|play)", s, I)):
+            hits.discard(('Aceleração', 'Cortar custo', 'Jogar de graça'))
         mo = moment_of(kind, s, ctype)
         for f, sub, h in hits: out.append((f, sub, h, mo, s))
     sh = re.search(r"\bShift (\d+)", t)
@@ -185,7 +191,7 @@ SUBS_DESC = {
  ('Draw', 'Filter'): 'Troca ou seleciona cartas sem ganhar a mais: comprar 1 e descartar 1, olhar o topo, e ações que só repõem a si mesmas (Strike a Good Match: compra 2, descarta 1 e vai para o descarte = 0).',
  ('Aceleração', 'Gerar ink'): 'Coloca cartas a mais no inkwell (ramp).',
  ('Aceleração', 'Gerar ink drop'): 'Gera ink drop, tinta extra de uso único.',
- ('Aceleração', 'Cortar custo'): 'Paga menos ou nada: reduzir custo, jogar de graça, Shift até 3 e cantar músicas com Singer.',
+ ('Aceleração', 'Cortar custo'): 'Você paga menos ou nada para jogar cartas: reduzir custo, jogar de graça, Shift até 3 e cantar músicas com Singer. Não contam: mover para location de graça, pagar menos por outro efeito e jogada grátis dada ao oponente.',
  ('Disrupção', 'Mão'): 'Ataca a mão do oponente: descarte e revelar a mão.',
  ('Disrupção', 'Lore'): 'Tira lore do oponente ou impede que ele ganhe.',
  ('Disrupção', 'Mesa'): 'Atrapalha os personagens do oponente sem tirá-los do jogo: voltar para a mão e travar (não prepara, não desafia, não questa).',
