@@ -1175,9 +1175,10 @@ function renderConcepts() {
     "<b>Remoção é contra personagens prontos.</b> Dano, banir, exaurir, mover dano ou mandar para o inkwell ou o fundo do deck. Um desafio comum num personagem exaurido não conta como remoção.",
     "<b>Draw conta o saldo.</b> Um personagem que compra 2 e descarta 1 fica na mesa e dá +1 carta: é card advantage. Uma ação que só repõe a si mesma (comprar 1, ou comprar 2 e descartar 1, como Strike a Good Match) não ganha nada: fica em Filter › Repõe a si mesma.",
     "<b>Pressão de lore</b> é ganhar lore por efeito ou ter personagens que questam para 2 ou mais com custo efetivo baixo (lore ÷ custo efetivo ≥ 2/3, em que custo efetivo é o menor entre o custo e o Shift). O lore de um personagem Reckless não conta, porque ele não questa.",
+    "<b>Shift só acelera até 3.</b> Shift 3 ou menos põe um personagem caro em jogo cedo (Lilo & Stitch, Luisa – Confident Climber, Pocahontas – Peacekeeper) e conta em Aceleração › Cortar custo. Shift 4 ou mais já entra no meio ou fim do jogo e não conta como aceleração: nos dados do ranqueado, os jogadores mantêm cartas de Shift 3 em 36% das mãos iniciais e as de Shift 4 em só 17%, o mesmo nível de Shift 5 e 6. A carta continua contando nas outras funções que tiver.",
     "<b>Músicas contam pelo efeito.</b> Ser música não as torna aceleração; cantar com Singer conta como Cortar custo no personagem que canta.",
     "<b>Defesa só no seu turno é para desafiar.</b> Resist, Ward, vontade ou imunidade a dano de desafio que valem só durante o seu turno (Judy Hopps – Lead Detective, Mulan – Standing Her Ground) contam em Controle de mesa › Desafio, não em Proteção.",
-    "<b>Corpo</b> são personagens sem habilidade (vanilla), que valem pelos números. <b>Outros</b> são as sobras: desvantagens do próprio personagem, regras de montagem de deck e algumas locations.",
+    "<b>Corpo</b> são personagens sem habilidade (vanilla), ou cuja única habilidade é um Shift 4 ou mais, que valem pelos números. <b>Outros</b> são as sobras: desvantagens do próprio personagem, regras de montagem de deck e algumas locations.",
   ].forEach((t) => { const li = el("li"); li.innerHTML = t; rl.append(li); });
 
   // 5. how to read

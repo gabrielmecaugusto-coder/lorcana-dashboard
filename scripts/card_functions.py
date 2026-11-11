@@ -149,6 +149,9 @@ def classify_product(p):
         mo = moment_of(kind, s, ctype)
         for f, sub, h in hits: out.append((f, sub, h, mo, s))
     sh = re.search(r"\bShift (\d+)", t)
+    late_shift = False
+    if sh and int(sh.group(1)) >= 4:  # Shift 4+ lands in the mid/late game: not acceleration (checked against mulligan/turn-3 data, 11/11/2026)
+        n0 = len(out); out = [o for o in out if o[2] != 'Shift']; late_shift = len(out) < n0
     eff = min([x for x in [num(p.get('cost')), int(sh.group(1)) if sh else None] if x] or [9])
     lore = num(p.get('lore')) or 0
     if ctype == 'Character' and lore >= 2 and lore / eff >= 0.66:
@@ -156,7 +159,7 @@ def classify_product(p):
     if not t.strip() or not segments(t, ctype):
         out.append(('Corpo', 'Corpo', 'Vanilla', '—', ''))
     elif not out:
-        out.append(('Outros', 'Outros', 'Outros', '—', ''))
+        out.append(('Corpo', 'Corpo', 'Vanilla', '—', '') if late_shift else ('Outros', 'Outros', 'Outros', '—', ''))
     return p, t, out
 
 
@@ -165,11 +168,11 @@ FUNCS_DESC = {
  'Remoção': 'Tira de jogo ou neutraliza personagens que estão em pé (prontos): dano, banir, exaurir, mover dano, mandar para o inkwell ou fundo do deck. Um desafio comum num personagem exaurido não conta.',
  'Controle de mesa': 'Ajuda a ganhar as trocas na mesa: força (aumentar ou reduzir, inclusive Support), desafio (Challenger, Rush, Reckless) e preparar (ready) personagens.',
  'Draw': 'Mexe nas cartas da sua mão e do seu deck: card advantage (ganha cartas a mais) ou filter (troca cartas sem ganhar a mais).',
- 'Aceleração': 'Deixa você jogar mais coisas antes: gerar tinta (ramp), gerar ink drop ou cortar custo (reduzir custo, jogar de graça, Shift, cantar).',
+ 'Aceleração': 'Deixa você jogar mais coisas antes: gerar tinta (ramp), gerar ink drop ou cortar custo (reduzir custo, jogar de graça, Shift até 3, cantar).',
  'Disrupção': 'Atrapalha os recursos e o plano do oponente: mão (descarte), lore, mesa (voltar para a mão, travar), descarte e tinta dele, e regras que o impedem de jogar.',
  'Pressão de lore': 'Faz lore mais rápido: ganhar lore por efeito ou personagens que questam para 2 ou mais com custo efetivo baixo (custo ou Shift).',
  'Proteção / evasão': 'Mantém seus personagens vivos ou fora de alcance: Evasive, Ward, Resist, Bodyguard, não pode ser desafiado, aumentar vontade e remover dano.',
- 'Corpo': 'Personagens sem nenhuma habilidade (vanilla): valem só pelos números (custo, força, vontade e lore).',
+ 'Corpo': 'Personagens sem nenhuma habilidade (vanilla), ou cuja única habilidade é um Shift 4 ou mais: valem só pelos números (custo, força, vontade e lore).',
  'Outros': 'Cartas com habilidades que não se encaixam nas funções, como desvantagens do próprio personagem, regras de montagem de deck e algumas regras de location.',
 }
 SUBS_DESC = {
@@ -182,7 +185,7 @@ SUBS_DESC = {
  ('Draw', 'Filter'): 'Troca ou seleciona cartas sem ganhar a mais: comprar 1 e descartar 1, olhar o topo, e ações que só repõem a si mesmas (Strike a Good Match: compra 2, descarta 1 e vai para o descarte = 0).',
  ('Aceleração', 'Gerar ink'): 'Coloca cartas a mais no inkwell (ramp).',
  ('Aceleração', 'Gerar ink drop'): 'Gera ink drop, tinta extra de uso único.',
- ('Aceleração', 'Cortar custo'): 'Paga menos ou nada: reduzir custo, jogar de graça, Shift e cantar músicas com Singer.',
+ ('Aceleração', 'Cortar custo'): 'Paga menos ou nada: reduzir custo, jogar de graça, Shift até 3 e cantar músicas com Singer.',
  ('Disrupção', 'Mão'): 'Ataca a mão do oponente: descarte e revelar a mão.',
  ('Disrupção', 'Lore'): 'Tira lore do oponente ou impede que ele ganhe.',
  ('Disrupção', 'Mesa'): 'Atrapalha os personagens do oponente sem tirá-los do jogo: voltar para a mão e travar (não prepara, não desafia, não questa).',
@@ -209,7 +212,7 @@ HABS_DESC = {
  'Compra e descarta': 'Compra e descarta a mesma quantidade (filtra a mão).', 'Olha o topo / reordena': 'Olha cartas do topo do deck e escolhe a ordem.',
  'Comprar': 'Compra cartas a mais (inclui comprar 2 e descartar 1).', 'Recuperar do descarte': 'Traz cartas do seu descarte de volta para a mão ou para o jogo.',
  'Buscar no deck': 'Procura cartas no deck e coloca na mão.', 'Ramp': 'Coloca cartas a mais no inkwell.', 'Ink drop': 'Gera ink drop.',
- 'Reduzir custo': 'Diminui o custo de cartas.', 'Jogar de graça': 'Joga uma carta sem pagar tinta.', 'Shift': 'Joga por um custo menor em cima de outra versão do personagem.',
+ 'Reduzir custo': 'Diminui o custo de cartas.', 'Jogar de graça': 'Joga uma carta sem pagar tinta.', 'Shift': 'Joga por um custo menor em cima de outra versão do personagem. Só conta com Shift 3 ou menos: Shift 4 ou mais já entra no meio/fim do jogo e não acelera.',
  'Cantar (Singer)': 'Canta músicas mais caras de graça.', 'Oponente descarta': 'O oponente descarta cartas da mão.', 'Revela a mão': 'Você vê a mão do oponente.',
  'Oponente perde lore': 'O oponente perde lore.', 'Impede ganhar lore': 'O oponente não pode ganhar lore.', 'Reduz lore do oponente': 'Um personagem do oponente questa para menos.',
  'Descarte do oponente': 'Tira ou mexe nas cartas do descarte do oponente.', 'Tinta do oponente': 'Mexe no inkwell do oponente.',
