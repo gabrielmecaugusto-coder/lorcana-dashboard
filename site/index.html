@@ -22,6 +22,7 @@
     <button role="tab" data-tab="cards">Cartas</button>
     <button role="tab" data-tab="insights" id="tab-btn-ins" hidden>Meta</button>
     <button role="tab" data-tab="deck" id="tab-btn-deck" hidden>Analisar deck</button>
+    <button role="tab" data-tab="concepts" id="tab-btn-concepts" hidden>Conceitos</button>
     <button role="tab" data-tab="meta" data-duels hidden>Meta × preço</button>
     <button role="tab" data-tab="decks" data-duels hidden>Decks</button>
     <button role="tab" data-tab="mechs" data-duels hidden>Mechanics</button>
@@ -29,7 +30,7 @@
 </header>
 
 <section class="filters" aria-label="Filtros">
-  <label class="f">Janela
+  <label class="f" data-notab="cards">Janela
     <select id="f-window">
       <option value="d1">1 dia</option>
       <option value="d7">7 dias</option>
@@ -53,11 +54,12 @@
   </label>
   <div class="f"><span>Coleção</span><div class="ms" id="f-set"></div></div>
   <div class="f inks" id="f-inks" role="group" aria-label="Cor de tinta"></div>
-  <div class="f"><span>Raridade</span><div class="ms" id="f-rarity"></div></div>
+  <div class="f" data-notab="cards"><span>Raridade</span><div class="ms" id="f-rarity"></div></div>
   <div class="f" data-duels hidden><span>Mechanic</span><div class="ms" id="f-mech"></div></div>
-  <div class="f" data-duels hidden><span>Deck</span><div class="ms" id="f-deck"></div></div>
-  <div class="f" data-duels hidden id="cat-filter-wrap"><span>Categoria</span><div class="ms" id="f-cat"></div></div>
-  <label class="f">Impressão
+  <div class="f" hidden id="deck-filter-wrap"><span>Deck</span><div class="ms" id="f-deck"></div></div>
+  <div class="f" hidden id="cat-filter-wrap"><span>Categoria</span><div class="ms" id="f-cat"></div></div>
+  <div class="f" data-only="cards" hidden><span>Função / habilidade</span><div class="ms ms-wide" id="f-fx"></div></div>
+  <label class="f" data-notab="cards">Impressão
     <select id="f-printing">
       <option value="">Todas</option>
       <option value="Normal">Normal</option>
@@ -65,7 +67,7 @@
       <option value="Cold Foil">Cold Foil</option>
     </select>
   </label>
-  <label class="f">Preço mín. (US$) <input type="number" id="f-min" min="0" step="0.5" value="0" inputmode="decimal"></label>
+  <label class="f" data-notab="cards">Preço mín. (US$) <input type="number" id="f-min" min="0" step="0.5" value="0" inputmode="decimal"></label>
   <label class="f grow">Busca <input type="search" id="f-q" placeholder="Nome da carta"></label>
   <button class="link" id="f-reset" type="button">Limpar</button>
 </section>
@@ -252,8 +254,9 @@
         <div class="controls"><div class="seg" role="group" aria-label="Categoria" data-ctl="insCat" id="in-cat-seg"></div></div></div>
       <p class="muted small" id="in-beat-note"></p>
       <div class="grid2">
-        <div><h3>Efeito de cada função no win rate</h3><div class="chart" id="in-eff-wrap" style="height:300px"><canvas id="c-in-eff"></canvas></div><p class="muted small" id="in-eff-note"></p></div>
-        <div><h3>O que os decks que vão bem têm a mais</h3><div class="chart" id="in-beat-wrap" style="height:300px"><canvas id="c-in-beat"></canvas></div></div>
+        <div><h3>Por função</h3><div class="chart" id="in-eff-wrap" style="height:300px"><canvas id="c-in-eff"></canvas></div></div>
+        <div><div class="row-between"><h3>Em detalhe</h3><div class="seg" role="group" aria-label="Nível" data-ctl="insLevel" id="in-lv-seg"><button type="button" data-v="sub">Subfunção</button><button type="button" data-v="hab">Habilidade</button></div></div>
+          <div class="chart" id="in-beat-wrap" style="height:300px"><canvas id="c-in-beat"></canvas></div></div>
       </div>
     </article>
     <article class="card">
@@ -277,6 +280,19 @@
       <div class="table-wrap" style="margin-top:10px"><table class="t" id="t-in-sh-comp"></table></div>
     </article>
     <p class="muted small" id="in-credit"></p>
+  </section>
+
+  <section id="tab-concepts" class="tab" hidden>
+    <nav class="card toc" aria-label="Nesta página">
+      <h2>Conceitos</h2>
+      <p class="muted small">Como o site lê o meta: a <b>categoria</b> diz como um deck ganha, a <b>função</b> diz o que cada carta faz e o <b>momento</b> diz quando ela faz. Os exemplos abaixo vêm das listas de referência e dos dados do meta atual.</p>
+      <p class="small"><a href="#cx-cat">Categorias de deck</a> · <a href="#cx-fn">Funções e habilidades</a> · <a href="#cx-mom">Momento</a> · <a href="#cx-rules">Regras de contagem</a> · <a href="#cx-read">Como ler as análises</a></p>
+    </nav>
+    <article class="card" id="cx-cat"></article>
+    <article class="card" id="cx-fn"></article>
+    <article class="card" id="cx-mom"></article>
+    <article class="card" id="cx-rules"></article>
+    <article class="card" id="cx-read"></article>
   </section>
 
   <section id="tab-deck" class="tab" hidden>
@@ -387,8 +403,10 @@
 
   <section id="tab-cards" class="tab" hidden>
     <article class="card">
-      <div class="row-between"><h2>Cartas <span class="muted" id="cards-count"></span></h2>
-        <div class="pager"><button type="button" id="pg-prev">‹</button><span id="pg-info"></span><button type="button" id="pg-next">›</button></div></div>
+      <div class="row-between"><h2>Participação no meta <span class="muted" id="cards-count"></span></h2>
+        <div class="controls"><label class="small"><input type="checkbox" id="cards-all"> Mostrar também cartas fora desses decks</label>
+        <div class="pager"><button type="button" id="pg-prev">‹</button><span id="pg-info"></span><button type="button" id="pg-next">›</button></div></div></div>
+      <p class="muted small" id="cards-note"></p>
       <div class="table-wrap"><table class="t sortable" id="t-cards"></table></div>
     </article>
   </section>

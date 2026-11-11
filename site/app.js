@@ -16,11 +16,11 @@ const PAGE = 50;
 const S = {
   cards: [], sets: [], setsById: new Map(), events: { releases: [], rotations: [] }, latest: null, first: null,
   histories: new Map(),
-  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), cats: new Set(), printing: "", min: 0, q: "" },
+  filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), cats: new Set(), fx: new Set(), printing: "", min: 0, q: "" },
   duels: null, duelsByPid: new Map(), duelsById: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
   deckSort: { key: "wr", dir: -1 }, mechSort: { key: "dShare", dir: -1 }, mechOpen: null, mechLines: {}, momSel: new Set(), mcSort: { key: "s1", dir: -1 }, mcPage: 0, muSort: { key: "games", dir: -1 }, selDeck: null, /* deck key */ deckMin: 2000,
-  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", catGran: "era", mechGran: "week", mechLevel: "func", compLevel: "func", dlLevel: "func", insCat: "Aggro", whyLevel: "sub", vsCat: "Aggro", gran: "monthly", ev: { rel: true, rot: true } },
-  sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", catGran: "era", mechGran: "week", mechLevel: "func", compLevel: "func", dlLevel: "func", insCat: "Aggro", insLevel: "sub", cardsAll: false, whyLevel: "sub", vsCat: "Aggro", gran: "monthly", ev: { rel: true, rot: true } },
+  sort: { key: "share", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -47,7 +47,7 @@ async function init() {
   S.sets = sets.filter((s) => s.cards > 0);
   S.sets.forEach((s) => S.setsById.set(s.groupId, s));
   // Card functions (public): powers the decklist analyser.
-  try { S.fn = await getJSON("data/functions.json"); $("tab-btn-deck").hidden = false; } catch (e) { S.fn = null; }
+  try { S.fn = await getJSON("data/functions.json"); $("tab-btn-deck").hidden = false; $("tab-btn-concepts").hidden = false; } catch (e) { S.fn = null; }
   try { if (S.fn) { S.ins = await getJSON("data/insights.json"); $("tab-btn-ins").hidden = false; $("ins-foot").hidden = false; } } catch (e) { S.ins = null; }
   // Optional Duels.ink data: present only in the private build.
   try {
@@ -106,7 +106,22 @@ function buildFilters() {
   if (S.duels && S.duels.decks && S.duels.decks.categories) $("vscat-seg").replaceChildren(...S.duels.decks.categories.order.map((c) => { const b = el("button", null, "vs " + c); b.type = "button"; b.dataset.v = c; b.title = CAT_DESC[c]; return b; }));
   else $("vscat-box").hidden = true;
   if (S.duels && S.duels.decks && S.duels.decks.categories) S.ms.cats = multiSelect($("f-cat"), S.duels.decks.categories.order.map((c) => [c, c, CAT_DESC[c]]), f.cats, "Todas", changed);
-  else ["cat-filter-wrap", "cat-box", "catevo-box", "comp-box"].forEach((id) => $(id).hidden = true);
+  else {
+    ["cat-box", "catevo-box", "comp-box"].forEach((id) => $(id).hidden = true);
+    if (S.ins) S.ms.cats = multiSelect($("f-cat"), S.ins.categories.order.map((c) => [c, c, CAT_DESC[c]]), f.cats, "Todas", changed);
+  }
+  if (!S.dcur && S.ins) S.ms.decks = multiSelect($("f-deck"), S.ins.decks.map((d) => [d.key, `${d.name} (${d.category})`]), f.decks, "Todos", changed);
+  if (S.fn) {
+    const T = S.fn, opts = [];
+    T.funcs.forEach((fn, fi) => {
+      opts.push(["f:" + fi, fn, T.desc.funcs[fi]]);
+      T.subs.forEach(([sf, sn], si) => { if (sf !== fi) return;
+        if (sn !== fn) opts.push(["s:" + si, `${fn} › ${sn}`, T.desc.subs[si]]);
+        T.habs.forEach(([hs, hn], hi) => { if (hs === si && hn !== sn) opts.push(["h:" + hi, `${fn} › ${sn} › ${hn}`, T.desc.habs[hi]]); }); });
+    });
+    S.ms.fx = multiSelect($("f-fx"), opts, f.fx, "Todas", changed);
+  }
+  $("cards-all").onchange = (e) => { S.view.cardsAll = e.target.checked; S.page = 0; renderCards(); };
   $("decks-min").addEventListener("input", (e) => { S.deckMin = +e.target.value || 0; renderDecks(); });
   if (S.duels) S.ms.mechs = multiSelect($("f-mech"), S.duels.mechanics.map((m, i) => [String(i), `${m.group}: ${m.label}`]), f.mechs, "Todas", changed);
   INKS.forEach(([name, color]) => {
@@ -122,7 +137,7 @@ function buildFilters() {
   bind("f-printing", "printing"); bind("f-min", "min", "input", (v) => +v || 0);
   bind("f-q", "q", "input", (v) => v.trim().toLowerCase());
   $("f-reset").onclick = () => {
-    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear(); f.mechs.clear(); f.decks.clear(); f.cats.clear();
+    Object.assign(f, { format: "", printing: "", min: 0, q: "" }); f.sets.clear(); f.inks.clear(); f.rarities.clear(); f.mechs.clear(); f.decks.clear(); f.cats.clear(); f.fx.clear();
     changed();
   };
   document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; changed(); });
@@ -149,12 +164,22 @@ function syncControls() {
   const f = S.filter;
   $("f-window").value = f.window; $("f-from").value = f.from; $("f-to").value = f.to; $("f-format").value = f.format;
   $("f-printing").value = f.printing; $("f-min").value = f.min; $("f-q").value = f.q;
-  S.ms.sets.sync(); S.ms.rarities.sync(); if (S.ms.mechs) S.ms.mechs.sync(); if (S.ms.decks) S.ms.decks.sync(); if (S.ms.cats) S.ms.cats.sync();
+  S.ms.sets.sync(); S.ms.rarities.sync(); if (S.ms.mechs) S.ms.mechs.sync(); if (S.ms.decks) S.ms.decks.sync(); if (S.ms.cats) S.ms.cats.sync(); if (S.ms.fx) S.ms.fx.sync();
   document.querySelectorAll(".ink").forEach((b) => b.setAttribute("aria-pressed", f.inks.has(b.dataset.ink)));
-  document.querySelector(".custom-range").hidden = f.window !== "custom";
+  document.querySelector(".custom-range").hidden = f.window !== "custom" || S.tab === "cards";
+  filterVis();
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === S.tab));
   document.querySelectorAll(".tab").forEach((t) => t.hidden = t.id !== "tab-" + S.tab);
   syncView();
+}
+/** Which filters make sense on the current tab (the bar is shared by all tabs). */
+function filterVis() {
+  const t = S.tab;
+  document.querySelectorAll(".filters [data-notab]").forEach((e) => e.hidden = e.dataset.notab.split(",").includes(t));
+  document.querySelectorAll(".filters [data-only]").forEach((e) => e.hidden = !e.dataset.only.split(",").includes(t));
+  // deck / category: always in the private build; in the public one only on Cards (they set the base of the meta share)
+  ["deck-filter-wrap", "cat-filter-wrap"].forEach((id) => { const e = $(id), ok = id === "deck-filter-wrap" ? !!S.ms.decks : !!S.ms.cats;
+    e.hidden = !ok || (!S.duels && t !== "cards"); });
 }
 function syncView() {
   document.querySelectorAll(".seg[data-ctl]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", S.view[g.dataset.ctl] === b.dataset.v)));
@@ -173,6 +198,7 @@ function writeHash() {
   if (f.mechs.size) p.set("mech", [...f.mechs].join(","));
   if (f.decks.size) p.set("deck", [...f.decks].join(","));
   if (f.cats.size) p.set("cat", [...f.cats].join(","));
+  if (f.fx.size) p.set("fx", [...f.fx].join(","));
   if (f.printing) p.set("pr", f.printing);
   if (f.min) p.set("min", f.min);
   if (f.q) p.set("q", f.q);
@@ -194,8 +220,9 @@ function readHash() {
   f.inks.clear(); list("ink").forEach((x) => f.inks.add(x));
   f.rarities.clear(); list("rar").forEach((x) => f.rarities.add(x));
   f.mechs.clear(); if (S.duels) list("mech").forEach((x) => f.mechs.add(x));
-  f.decks.clear(); if (S.dcur) list("deck").forEach((x) => f.decks.add(x));
-  f.cats.clear(); if (S.dcur) list("cat").forEach((x) => f.cats.add(x));
+  f.decks.clear(); if (S.dcur || S.ins) list("deck").forEach((x) => f.decks.add(x));
+  f.cats.clear(); if (S.dcur || S.ins) list("cat").forEach((x) => f.cats.add(x));
+  f.fx.clear(); if (S.fn) list("fx").forEach((x) => f.fx.add(x));
   f.printing = p.get("pr") || ""; f.min = +(p.get("min") || 0); f.q = p.get("q") || "";
   v.evoMetric = p.get("evo") || "total"; v.group = p.get("grp") || "set"; v.distMetric = p.get("dm") || "total"; v.chgGroup = p.get("cg") || "ink";
   v.ev.rel = !p.get("norel"); v.ev.rot = !p.get("norot");
@@ -282,7 +309,8 @@ function render() {
   if (S.tab === "mechs") renderMechs();
   if (S.tab === "deck") renderDeckAnalysis();
   if (S.tab === "insights") renderInsights();
-  document.querySelector(".filters").hidden = S.tab === "deck" || S.tab === "insights";
+  if (S.tab === "concepts") renderConcepts();
+  document.querySelector(".filters").hidden = ["deck", "insights", "concepts"].includes(S.tab);
 }
 
 function renderOverview(rows) {
@@ -498,37 +526,88 @@ function nameCell(tr, c) {
 }
 function numCell(tr, txt) { const td = tr.insertCell(); td.className = "num"; td.textContent = txt; return td; }
 
-const COLS = [
-  ["img", "", null], ["name", "Carta", (c) => c.name], ["rarity", "Raridade", (c) => rank(c.rarity)],
-  ["price", "Preço", (c) => c.price ?? -1], ["low", "Menor anúncio", (c) => c.low ?? -1],
-  ["chg", "Variação", (c) => change(c).pct ?? -1e9],
-];
+/* ---------- Cards tab: share of the meta ---------- */
+/** card ident -> does it have one of the selected funções / subfunções / habilidades? */
+function fxMatch(ident) {
+  const sel = S.filter.fx; if (!sel.size) return true;
+  const T = S.fn, fx = (T && T.byIdent[ident]) || [];
+  return fx.some(([hi]) => { const si = T.habs[hi][0]; return sel.has("h:" + hi) || sel.has("s:" + si) || sel.has("f:" + T.subs[si][0]); });
+}
+let duelsIdentCache = null;
+function identOfDuels(id) {
+  if (!duelsIdentCache) { duelsIdentCache = new Map(); S.cards.forEach((c) => { const d = duelsOf(c); if (d && !duelsIdentCache.has(d.id)) duelsIdentCache.set(d.id, c.ident); }); }
+  return duelsIdentCache.get(id);
+}
+/** Decks that form the base of the share, per the deck / category / colour filters. */
+function usageBase() {
+  const f = S.filter;
+  if (S.dcur) { // private: Duels.ink online ladder, weighted by games
+    const decks = S.dcur.decks.filter(deckPred()).map((d) => { const l = new Map(); Object.entries(d.list).forEach(([id, n]) => { const k = identOfDuels(id); if (k) l.set(k, (l.get(k) || 0) + n); }); return { w: d.games, list: l }; });
+    return { decks, src: "duels", scope: deckScopeText() };
+  }
+  if (!S.ins) return null;
+  const inkOk = f.inks.size === 1 ? (d) => d.colors.includes([...f.inks][0]) : f.inks.size > 1 ? (d) => d.colors.every((c) => f.inks.has(c)) : () => true;
+  const sel = S.ins.decks.filter((d) => (!f.decks.size || f.decks.has(d.key)) && (f.decks.size || ((!f.cats.size || f.cats.has(d.category)) && inkOk(d))));
+  const scope = f.decks.size ? (sel.length === 1 ? sel[0].name : `${sel.length} decks escolhidos`)
+    : [f.inks.size ? `com ${[...f.inks].join("/")}` : "", f.cats.size ? [...f.cats].join("/") : ""].filter(Boolean).join(", ") || "todos";
+  return { decks: sel.map((d) => ({ w: 1, list: new Map(Object.entries(d.list)), name: d.name })), src: "ref", scope };
+}
+function usageMap(base) {
+  const W = base.decks.reduce((a, d) => a + d.w, 0), out = new Map();
+  base.decks.forEach((d) => d.list.forEach((n, k) => { if (n < 0.5) return; const o = out.get(k) || { w: 0, cp: 0, n: 0 }; o.w += d.w; o.cp += n * d.w; o.n++; out.set(k, o); }));
+  out.forEach((o) => { o.share = W ? o.w / W : 0; o.copies = o.cp / o.w; });
+  return out;
+}
+const fnNames = (ident) => { const T = S.fn, fx = (T && T.byIdent[ident]) || []; return [...new Set(fx.map(([hi]) => T.funcs[T.subs[T.habs[hi][0]][0]]))]; };
+const habNames = (ident) => { const T = S.fn, fx = (T && T.byIdent[ident]) || []; return [...new Set(fx.map(([hi]) => { const si = T.habs[hi][0]; return `${T.funcs[T.subs[si][0]]} › ${T.subs[si][1]} › ${T.habs[hi][1]}`; }))]; };
 function renderCards() {
-  const tbl = $("t-cards"), rows = [...S.rows];
-  const col = COLS.find((c) => c[0] === S.sort.key);
-  rows.sort((a, b) => { const x = col[2](a), y = col[2](b); return (x > y ? 1 : x < y ? -1 : 0) * S.sort.dir; });
+  const base = usageBase(), tbl = $("t-cards");
+  $("cards-all").checked = S.view.cardsAll;
+  if (!base) { $("cards-note").textContent = "Os dados de uso no meta não estão disponíveis."; tbl.replaceChildren(); return; }
+  const U = usageMap(base), ref = refCards(), idents = new Set();
+  S.rows.forEach((c) => { if (c.ident && fxMatch(c.ident)) idents.add(c.ident); });
+  let rows = [...idents].map((k) => { const u = U.get(k); return { c: ref.get(k), k, share: u ? u.share : 0, copies: u ? u.copies : null, n: u ? u.n : 0 }; }).filter((r) => r.c);
+  if (!S.view.cardsAll) rows = rows.filter((r) => r.share > 0);
+  const cols = [["img", "", null], ["name", "Carta", (r) => r.c.name], ["cost", "Custo", (r) => +r.c.cost || 0], ["fn", "Funções", null],
+    ["share", "Presença nos decks", (r) => r.share], ["copies", "Cópias (quando usa)", (r) => r.copies ?? -1]];
+  if (base.src === "ref") cols.push(["n", "Decks", (r) => r.n]);
+  const col = cols.find((c) => c[0] === S.sort.key && c[2]) || cols[4]; if (col[0] !== S.sort.key) S.sort = { key: "share", dir: -1 };
+  rows.sort((a, b) => { const x = col[2](a), y = col[2](b); return ((x > y ? 1 : x < y ? -1 : 0) * S.sort.dir) || (b.share - a.share) || a.c.name.localeCompare(b.c.name); });
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)); S.page = Math.min(S.page, pages - 1);
   $("pg-info").textContent = `${S.page + 1} / ${pages}`;
-  $("cards-count").textContent = `· ${rows.length.toLocaleString("pt-BR")} · variação em ${windowText()}`;
+  const nd = base.decks.length;
+  $("cards-count").textContent = `· ${rows.length.toLocaleString("pt-BR")} cartas`;
+  $("cards-note").textContent = base.src === "ref"
+    ? `Base: ${nd} ${nd === 1 ? "lista de referência" : "listas de referência"} (${base.scope}), escolhidas por nós entre as builds mais jogadas de cada arquétipo do ranqueado online (${S.ins.eraName}). Presença = fração dessas listas que usa a carta; cópias = média de cópias nas listas que usam. Mude cor, categoria ou deck nos filtros para mudar a base.`
+    : `Base: ${nd} decks do ranqueado Core BO1 do Duels.ink (${base.scope}), ponderados por partidas. Presença = fatia das partidas desses decks cuja lista média tem a carta (0,5 cópia ou mais); cópias = média nas listas que usam. Mude cor, categoria ou deck nos filtros para mudar a base.`;
   tbl.replaceChildren();
   const head = tbl.createTHead().insertRow();
-  COLS.forEach(([k, t, f]) => {
-    const th = el("th", ["price", "low", "chg"].includes(k) ? "num" : "", t);
+  cols.forEach(([k, t, f]) => {
+    const th = el("th", ["cost", "share", "copies", "n"].includes(k) ? "num" : "", t);
     if (f) {
       th.tabIndex = 0; if (S.sort.key === k) th.setAttribute("aria-sort", S.sort.dir < 0 ? "descending" : "ascending");
-      th.onclick = th.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") { S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : (k === "name" ? 1 : -1) }; renderCards(); } };
+      th.onclick = th.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") { S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : (k === "name" || k === "cost" ? 1 : -1) }; renderCards(); } };
     }
     head.append(th);
   });
   const body = tbl.createTBody();
-  rows.slice(S.page * PAGE, S.page * PAGE + PAGE).forEach((c) => {
+  rows.slice(S.page * PAGE, S.page * PAGE + PAGE).forEach((r) => {
     const tr = body.insertRow(); tr.tabIndex = 0;
-    tr.onclick = tr.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") openDetail(c); };
-    imgCell(tr, c); nameCell(tr, c);
-    tr.insertCell().textContent = c.rarity || "–";
-    numCell(tr, usd(c.price)); numCell(tr, usd(c.low));
-    const p = change(c).pct; const td = numCell(tr, pctTxt(p)); if (p) td.className += p > 0 ? " up" : " down";
+    tr.onclick = tr.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") openDetail(r.c); };
+    imgCell(tr, r.c);
+    const td = tr.insertCell(); td.className = "name"; td.append(document.createTextNode(r.c.name), el("small", null, [r.c.ink && r.c.ink.replace(";", "/"), r.c.type].filter(Boolean).join(" · ")));
+    numCell(tr, r.c.cost || "–");
+    const fc = tr.insertCell(); fc.className = "small tip"; fc.textContent = fnNames(r.k).join(", ") || "–"; fc.title = habNames(r.k).join("\n");
+    const sc = numCell(tr, r.share ? pct1(r.share) : "–"); if (r.share) { const bar = el("i", "sharebar"); bar.style.width = Math.round(r.share * 60) + "px"; sc.prepend(bar); }
+    numCell(tr, r.copies == null ? "–" : num2(r.copies));
+    if (base.src === "ref") numCell(tr, r.n ? `${r.n} de ${nd}` : "–");
   });
+}
+/** From an analysis to the Cards tab, filtered by one função / subfunção / habilidade. */
+function goCards(level, k) {
+  const f = S.filter; f.fx.clear(); f.fx.add(`${level[0]}:${k}`);
+  f.inks.clear(); f.decks.clear(); f.cats.clear(); f.q = ""; S.sort = { key: "share", dir: -1 };
+  S.tab = "cards"; changed(); window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 /* ---------- detail ---------- */
@@ -856,12 +935,12 @@ function driverStats(rows, keys) {
   return { bad, good, feats: keys.map((k) => ({ k, bad: avg(bad, k), good: avg(good, k), corr: wcorrJs(rows.map((r) => r.comp.get(k) || 0), rows.map((r) => r.wr), rows.map((r) => r.g)) }))
     .map((f) => ({ ...f, diff: f.bad - f.good })) };
 }
-function divergingChart(id, wrapId, feats, valueOf, posColor, negColor, tooltip) {
+function divergingChart(id, wrapId, feats, valueOf, posColor, negColor, tooltip, onClick) {
   const pos = feats.filter((f) => valueOf(f) > 0).sort((a, b) => valueOf(b) - valueOf(a)).slice(0, 8), neg = feats.filter((f) => valueOf(f) < 0).sort((a, b) => valueOf(b) - valueOf(a)).slice(-6);
   const fts = pos.concat(neg);
   $(wrapId).style.height = Math.max(240, fts.length * 26 + 60) + "px";
   barChart(id, fts.map((f) => f.label), [{ data: fts.map((f) => Math.round(valueOf(f) * 10) / 10), backgroundColor: fts.map((f) => valueOf(f) >= 0 ? posColor : negColor), borderSkipped: false }],
-    { horizontal: true, labelMax: 40, fmt: (v) => (v > 0 ? "+" : "") + Number(v).toLocaleString("pt-BR"), tooltip: (i) => tooltip(fts[i]) });
+    { horizontal: true, labelMax: 40, fmt: (v) => (v > 0 ? "+" : "") + Number(v).toLocaleString("pt-BR"), tooltip: (i) => tooltip(fts[i]), onClick: onClick ? (i) => onClick(fts[i]) : undefined });
 }
 const MU_MIN = 300; // games for a matchup to count
 const GENERIC_ARCH = /^(Midrange|Aggro|Control|Outros|Tempo)$/;
@@ -941,24 +1020,26 @@ function renderInsights() {
   const kp = $("in-cat-kpis"); kp.replaceChildren();
   O.forEach((c) => { const k = el("div", "kpi"); const lab = el("span", "kpi-label tip", c); lab.title = CAT_DESC[c]; const v = el("span", "kpi-value", pct1(I.categories.presence[c])); v.style.color = catColor(c);
     k.append(lab, v, el("span", "kpi-sub", CAT_DESC[c])); kp.append(k); });
-  const tc = $("t-in-cent"); tc.replaceChildren(); const hc = tc.createTHead().insertRow(); ["", ...O].forEach((h, i) => hc.append(el("th", i ? "num" : "", h)));
+  const tc = $("t-in-cent"); tc.replaceChildren(); const hc = tc.createTHead().insertRow(); ["", ...O].forEach((h, i) => { const th = el("th", i ? "num tip" : "", h); if (i) th.title = `${h}: ${CAT_DESC[h]}`; hc.append(th); });
   const bc = tc.createTBody();
   I.features.forEach((l, k) => { const tr = bc.insertRow(); tr.style.cursor = "default"; tr.insertCell().textContent = l;
     const vals = O.map((c) => I.categories.centroid[c] ? I.categories.centroid[c][k] : null), mx = Math.max(...vals.filter((v) => v != null));
     vals.forEach((v) => { const td = numCell(tr, v == null ? "–" : f1(v)); if (v === mx) td.style.fontWeight = "700"; }); });
-  // 2. what beats each category
-  const c = S.view.insCat, m = I.model.models[c];
+  // 2. what beats each category: top third vs bottom third of decks against it, by função (left) and in detail (right)
+  const c = S.view.insCat, B = I.beats[c], lv = S.view.insLevel;
   $("in-beat-title").textContent = `O que funciona contra ${c}`;
-  if (m) {
-    const g = 1 - m.rmse / m.base, q = g >= 0.25 ? "boa" : g >= 0.12 ? "razoável" : "fraca";
-    const eff = I.features.map((l, k) => ({ label: l, k, v: m.fit.unit[k] * 100 })).filter((e) => Math.abs(e.v) >= 0.05);
-    divergingChart("c-in-eff", "in-eff-wrap", eff, (e) => e.v, css("--good") || "#1baf7a", css("--critical"),
-      (e) => [`${e.v > 0 ? "+" : ""}${f1(e.v)} p.p. no win rate contra ${c} por ${e.k === 8 ? "ponto a mais de custo médio" : "carta a mais"}`, "Comparado a um deck igual com uma carta a menos dessa função."]);
-    $("in-eff-note").textContent = `Fórmula ajustada com ${m.n} decks do meta: quanto cada carta a mais de uma função (ou cada ponto a mais de custo médio dos personagens) muda o win rate contra ${c}, mantendo o resto igual. Erro típico da fórmula: ± ${f1(m.rmse * 100)} p.p. (precisão ${q}). É associação, não causa.`;
-  }
-  const bt = Object.entries(I.beats[c] || {}).map(([k, v]) => ({ label: `${T.funcs[T.subs[+k][0]]} › ${T.subs[+k][1]}`, v, desc: T.desc.subs[+k] }));
-  divergingChart("c-in-beat", "in-beat-wrap", bt, (e) => e.v, css("--good") || "#1baf7a", css("--critical"), (e) => [`${e.v > 0 ? "+" : ""}${f1(e.v)} cartas por 60 nos decks que vão melhor contra ${c}`, ...wrapText(e.desc, 55)]);
-  $("in-beat-note").textContent = `À esquerda, o efeito estimado de cada função. À direita, comparamos a lista dos decks que mais ganham de ${c} com a dos que mais perdem (terço de cima contra terço de baixo): verde é o que os vencedores têm a mais.`;
+  document.querySelectorAll("#in-lv-seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === lv));
+  const good = css("--good") || "#1baf7a", bad = css("--critical");
+  const lab = { func: (k) => T.funcs[k], sub: (k) => `${T.funcs[T.subs[k][0]]} › ${T.subs[k][1]}`, hab: (k) => `${T.subs[T.habs[k][0]][1]} › ${T.habs[k][1]}` };
+  const dsc = { func: T.desc.funcs, sub: T.desc.subs, hab: T.desc.habs };
+  const items = (level) => Object.entries((B && B[level]) || {}).map(([k, v]) => ({ k: +k, level, v, label: lab[level](+k), desc: dsc[level][+k] }));
+  const tip = (e) => [`${e.v > 0 ? "+" : ""}${f1(e.v)} cartas por 60 nos decks que vão melhor contra ${c}`, ...wrapText(e.desc, 55), "Clique para ver essas cartas no meta."];
+  const go = (e) => goCards(e.level, e.k);
+  divergingChart("c-in-eff", "in-eff-wrap", items("func"), (e) => e.v, good, bad, tip, go);
+  divergingChart("c-in-beat", "in-beat-wrap", items(lv), (e) => e.v, good, bad, tip, go);
+  $("in-beat-note").textContent = B
+    ? `Separamos os ${B.n} decks do meta com partidas suficientes contra ${c} em três grupos pelo win rate contra ${c} e comparamos as listas do terço que mais ganha com as do terço que mais perde. Verde: o que os vencedores têm a mais (cartas por 60); vermelho: o que têm a menos. Uma carta conta em cada função que tem. À esquerda, as funções; à direita, o detalhe. Clique numa barra para ver as cartas na aba Cartas. É associação, não causa: os decks que vão bem podem ter outras coisas em comum.`
+    : `Não há decks suficientes com partidas contra ${c} para esta comparação.`;
   // 3. deck tiles
   $("in-decks-note").textContent = "Listas de referência escolhidas por nós entre as builds mais jogadas de cada arquétipo, com crédito. Clique num deck para ver a ficha.";
   const box = $("in-decks"); box.replaceChildren();
@@ -992,6 +1073,124 @@ function renderInsightSheet() {
     const fc = tr.insertCell(); fc.className = "small"; fc.textContent = [...new Set((S.fn.byIdent[x.c.ident] || []).map(([hi]) => T.funcs[T.subs[T.habs[hi][0]][0]]))].join(", ") || "–";
     numCell(tr, usd(x.c.price)); });
   $("in-sh-analyze").onclick = () => { S.dlText = items.map((x) => `${x.n} ${x.c.ident || x.c.name}`).join("\n"); $("dl-text").value = S.dlText; try { localStorage.setItem("lorcana-decklist", S.dlText); } catch (e) { /* storage off */ } S.tab = "deck"; changed(); };
+}
+
+/* ---------- Concepts tab (public): explains categories, funções, habilidades and momentos, with live examples ---------- */
+function openInsDeck(key) { S.insDeck = key; S.tab = "insights"; changed(); setTimeout(() => $("in-sheet").scrollIntoView({ behavior: "smooth", block: "start" }), 50); }
+function renderConcepts() {
+  if (S._cx || !S.fn) return; S._cx = true;
+  const T = S.fn, I = S.ins, f1 = (v) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const pop = I ? I.popular : [], popRank = new Map(pop.map((k, i) => [k, i]));
+  const allIdents = Object.keys(T.byIdent).sort((a, b) => (popRank.has(a) ? popRank.get(a) : 1e6) - (popRank.has(b) ? popRank.get(b) : 1e6) || a.localeCompare(b));
+  const examples = (test, n = 3) => { const out = []; for (const k of allIdents) { if (test(T.byIdent[k] || [])) { out.push(k); if (out.length >= n) break; } } return out; };
+  const linkBtn = (txt, fn, tip) => { const b = el("button", "cx-link", txt); b.type = "button"; b.onclick = fn; if (tip) b.title = tip; return b; };
+  const para = (parent, html) => { const p = el("p"); p.innerHTML = html; parent.append(p); return p; };
+  const esc = (t) => String(t).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const subLab = (k) => `${T.funcs[T.subs[k][0]]} › ${T.subs[k][1]}`;
+
+  // 1. categories
+  const cx = $("cx-cat"); cx.replaceChildren(el("h2", null, "Categorias de deck"));
+  const intro = el("div", "cx-prose"); cx.append(intro);
+  para(intro, "A categoria diz <b>como o deck ganha</b>, não quais cores usa. Duas listas Amethyst/Steel podem estar em categorias diferentes se uma fecha o jogo cedo e a outra vence no cansaço.");
+  para(intro, "Nenhuma regra decide sozinha. Para cada deck olhamos várias características ao mesmo tempo: quantas vitórias saem até o turno 7, quanto duram as vitórias e as derrotas (e a diferença entre elas), quantos personagens baratos, o custo médio dos personagens, o total de personagens e quantas cartas de wipe, remoção e compra a lista tem. O deck vai para a categoria cujo perfil típico é o mais parecido, usando como referência decks que todo mundo concorda em classificar. O nome do arquétipo pesa um pouco, e alguns casos foram decididos à mão por quem joga (por exemplo, Amber/Sapphire Control é Controle; Mouse House e Lilo & Stitch Songs são Tempo).");
+  if (I) {
+    const O = I.categories.order, grid = el("div", "cx-cats"); cx.append(grid);
+    const featIdx = (name) => I.features.indexOf(name);
+    O.forEach((c) => {
+      const box = el("div", "cx-cat"), h = el("h3"), dot = el("i"); dot.style.background = catColor(c); h.append(dot, document.createTextNode(c)); box.append(h);
+      box.append(el("p", null, CAT_DESC[c]));
+      const cen = I.categories.centroid[c];
+      if (cen) {
+        const others = O.filter((o) => o !== c && I.categories.centroid[o]);
+        const hi = I.features.map((l, k) => ({ l, k, d: cen[k] - others.reduce((a, o) => a + I.categories.centroid[o][k], 0) / others.length }))
+          .filter((x) => x.k < 7).sort((a, b) => b.d - a.d);
+        const pc = featIdx("Personagens"), cc = featIdx("Custo médio dos personagens");
+        para(box, `Perfil médio: <b>${f1(cen[pc])}</b> personagens por 60 cartas, custo médio <b>${f1(cen[cc])}</b>. Tem mais <b>${esc(hi[0].l.toLowerCase())}</b> (${f1(cen[hi[0].k])} cartas) e <b>${esc(hi[1].l.toLowerCase())}</b> (${f1(cen[hi[1].k])}) que a média das outras categorias. Presença no meta: ${pct1(I.categories.presence[c])} das partidas.`);
+      }
+      const ds = I.decks.filter((d) => d.category === c);
+      if (ds.length) { const p = el("p"); p.append(document.createTextNode("Decks de referência: ")); ds.forEach((d, i) => { if (i) p.append(document.createTextNode(", ")); p.append(linkBtn(shortDeck(d), () => openInsDeck(d.key), d.name)); }); box.append(p); }
+      // matchups of the reference decks of this category, summarised
+      const vs = O.filter((o) => o !== c).map((o) => { const ls = ds.map((d) => d.vsCategory[o]).filter(Boolean); const sc = ls.length ? ls.reduce((a, l) => a + (l === "favorável" ? 1 : l === "desfavorável" ? -1 : 0), 0) / ls.length : 0; return { o, sc, n: ls.length }; }).filter((x) => x.n);
+      const goodVs = vs.filter((x) => x.sc >= 0.34).map((x) => x.o), badVs = vs.filter((x) => x.sc <= -0.34).map((x) => x.o);
+      if (vs.length) para(box, `Nas listas de referência desta categoria: ${!goodVs.length && !badVs.length ? "fica equilibrada contra as outras categorias" : [goodVs.length ? `costuma ir bem contra <b>${goodVs.join(", ")}</b>` : "", badVs.length ? `sofre contra <b>${badVs.join(", ")}</b>` : ""].filter(Boolean).join("; ")}.`);
+      // why: what the decks that beat this category have more of, with a real example
+      const B = I.beats[c];
+      if (B && B.sub) {
+        const ent = Object.entries(B.sub).map(([k, v]) => [+k, v]), pos = ent.filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]), neg = ent.filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]);
+        if (pos.length) {
+          const [sk, sv] = pos[0];
+          const hasSub = (k) => (T.byIdent[k] || []).some(([hi]) => T.habs[hi][0] === sk);
+          let best = null;
+          I.decks.filter((d) => d.vsCategory[c] === "favorável" && d.category !== c).forEach((d) => { const cards = Object.entries(d.list).filter(([k]) => hasSub(k)).sort((a, b) => b[1] - a[1]); const tot = cards.reduce((a, [, n]) => a + n, 0); if (tot && (!best || tot > best.tot)) best = { d, cards, tot }; });
+          let txt = `<b>Por que se ganha de ${c}:</b> os decks que mais vencem ${c} têm, em média, ${f1(sv)} cartas a mais de <b>${esc(subLab(sk))}</b> por 60`;
+          if (neg.length) txt += ` e ${f1(-neg[0][1])} a menos de ${esc(subLab(neg[0][0]))}`;
+          txt += ".";
+          if (best) txt += ` Exemplo: ${esc(shortDeck(best.d))} (favorável contra ${c}) usa ${best.cards.slice(0, 3).map(([k, n]) => `${n}× ${esc(k)}`).join(", ")}.`;
+          para(box, txt);
+        }
+      }
+      grid.append(box);
+    });
+  }
+
+  // 2. funções > subfunções > habilidades
+  const fx = $("cx-fn"); fx.replaceChildren(el("h2", null, "Funções e habilidades"));
+  const fi = el("div", "cx-prose"); fx.append(fi);
+  para(fi, "Cada carta é descrita pelo que ela faz em jogo, em três níveis: a <b>função</b> (o papel geral), a <b>subfunção</b> (o jeito de cumprir esse papel) e a <b>habilidade</b> (o efeito concreto). Uma carta com vários efeitos aparece em todas as funções que cumpre. Os exemplos são as cartas mais jogadas no meta atual com aquela habilidade; clique no nome de uma habilidade para ver todas as cartas dela na aba Cartas.");
+  T.funcs.forEach((fn, fIdx) => {
+    const d = el("details", "cx-fn"); if (fIdx === 0) d.open = true;
+    const sm = el("summary", null, fn); sm.append(el("small", null, T.desc.funcs[fIdx])); d.append(sm);
+    T.subs.forEach(([sf, sn], sIdx) => {
+      if (sf !== fIdx) return;
+      const sb = el("div", "cx-sub");
+      if (sn !== fn) { const h4 = el("h4"); h4.append(linkBtn(sn, () => goCards("sub", sIdx), "Ver as cartas na aba Cartas"), document.createTextNode(` — ${T.desc.subs[sIdx]}`)); sb.append(h4); }
+      T.habs.forEach(([hs, hn], hIdx) => {
+        if (hs !== sIdx) return;
+        const row = el("div", "cx-hab");
+        row.append(linkBtn(hn, () => goCards("hab", hIdx), "Ver as cartas na aba Cartas"), document.createTextNode(`: ${T.desc.habs[hIdx]} `));
+        const ex = examples((list) => list.some(([h]) => h === hIdx));
+        if (ex.length) row.append(el("span", "cx-ex", `Ex.: ${ex.join(" · ")}`));
+        sb.append(row);
+      });
+      d.append(sb);
+    });
+    fx.append(d);
+  });
+
+  // 3. momentos
+  const mo = $("cx-mom"); mo.replaceChildren(el("h2", null, "Momento"));
+  const mi = el("div", "cx-prose"); mo.append(mi);
+  para(mi, "O momento é um eixo separado da função: diz <b>quando</b> a habilidade acontece. Uma remoção que acontece ao jogar o personagem é bem diferente de uma que só acontece se ele questar e sobreviver. Palavras-chave como Evasive, Ward e Resist contam como Contínuo; as exceções são Challenger (ao desafiar), Shift (ao jogar), Singer (ao cantar), Support (ao questar) e Boost (ativada).");
+  const ul = el("ul", "cx-prose"); mo.append(ul);
+  T.moments.forEach((m, k) => { if (m === "—") return; const li = el("li"); li.innerHTML = `<b>${esc(m)}</b>: ${esc(T.desc.moments[k])} `;
+    const ex = examples((list) => list.some(([, mm]) => mm === k)); if (ex.length) li.append(el("span", "cx-ex", `Ex.: ${ex.join(" · ")}`)); ul.append(li); });
+
+  // 4. counting rules
+  const ru = $("cx-rules"); ru.replaceChildren(el("h2", null, "Regras de contagem"));
+  const multi = allIdents.find((k) => fnNames(k).length >= 3) || allIdents.find((k) => fnNames(k).length >= 2);
+  const rl = el("ul", "cx-prose"); ru.append(rl);
+  [
+    `<b>Uma carta conta inteira em cada função que cumpre.</b> Ela não é dividida: se faz remoção e ganha lore, conta uma vez em Remoção e uma vez em Pressão de lore.${multi ? ` Exemplo: ${esc(multi)} conta em ${esc(fnNames(multi).join(", "))}.` : ""} Por isso a soma das funções de um deck passa de 60, e a pizza de composição mostra a fatia de cada papel, não de cartas.`,
+    "<b>Menção não é palavra-chave.</b> Uma carta que diz “personagens com Evasive ganham…” ou “desafiar um personagem com Ward” não ganha Evasive nem Ward por isso.",
+    "<b>Remoção é contra personagens prontos.</b> Dano, banir, exaurir, mover dano ou mandar para o inkwell ou o fundo do deck. Um desafio comum num personagem exaurido não conta como remoção.",
+    "<b>Draw conta o saldo.</b> Um personagem que compra 2 e descarta 1 fica na mesa e dá +1 carta: é card advantage. Uma ação que só repõe a si mesma (comprar 1, ou comprar 2 e descartar 1, como Strike a Good Match) não ganha nada: fica em Filter › Repõe a si mesma.",
+    "<b>Pressão de lore</b> é ganhar lore por efeito ou ter personagens que questam para 2 ou mais com custo efetivo baixo (lore ÷ custo efetivo ≥ 2/3, em que custo efetivo é o menor entre o custo e o Shift). O lore de um personagem Reckless não conta, porque ele não questa.",
+    "<b>Músicas contam pelo efeito.</b> Ser música não as torna aceleração; cantar com Singer conta como Cortar custo no personagem que canta.",
+    "<b>Defesa só no seu turno é para desafiar.</b> Resist, Ward, vontade ou imunidade a dano de desafio que valem só durante o seu turno (Judy Hopps – Lead Detective, Mulan – Standing Her Ground) contam em Controle de mesa › Desafio, não em Proteção.",
+    "<b>Corpo</b> são personagens sem habilidade (vanilla), que valem pelos números. <b>Outros</b> são as sobras: desvantagens do próprio personagem, regras de montagem de deck e algumas locations.",
+  ].forEach((t) => { const li = el("li"); li.innerHTML = t; rl.append(li); });
+
+  // 5. how to read
+  const rd = $("cx-read"); rd.replaceChildren(el("h2", null, "Como ler as análises"));
+  const rr = el("ul", "cx-prose"); rd.append(rr);
+  [
+    "<b>Composição (cartas por 60):</b> quantas cartas da lista cumprem cada função, numa lista de 60. Uma carta pode contar em mais de uma função.",
+    "<b>O que funciona contra uma categoria (aba Meta):</b> dividimos os decks do meta em três grupos pelo win rate contra aquela categoria e comparamos as listas do terço que mais ganha com as do terço que mais perde. Barra verde = o que os vencedores têm a mais; vermelha = o que têm a menos. Mostra associação, não causa.",
+    "<b>Ficha de deck:</b> o confronto contra cada categoria aparece só como rótulo — favorável (53% ou mais), desfavorável (47% ou menos) ou equilibrado. “Sofre contra decks com” compara os oponentes que o deck vence com os que o derrotam.",
+    "<b>Analisar deck:</b> a categoria vem do perfil mais parecido. O win rate contra cada categoria é estimado por uma fórmula ajustada com os decks do meta, e o site mostra a margem de erro medida (testando a fórmula em cada deck deixado de fora). O simulador refaz a conta quando você troca cartas; as sugestões vêm das cartas mais jogadas que cumprem a função que falta.",
+    S.dcur ? "<b>Aba Cartas:</b> a presença de cada carta é calculada sobre os decks do Duels.ink, ponderados por partidas, e a base muda com os filtros de cor, categoria e deck." : "<b>Aba Cartas:</b> a presença de cada carta é calculada sobre as listas de referência, e a base muda com os filtros de cor, categoria e deck.",
+    `<b>Fonte e limites:</b> as análises usam dados públicos de partidas online do Duels.ink (ranqueado Core BO1)${I ? `, ${esc(I.eraName)}` : ""}, e as listas de referência são escolhidas por nós. São poucas dezenas de decks e o meta muda a cada coleção: leia os números como tendência, não como verdade exata.`,
+  ].forEach((t) => { const li = el("li"); li.innerHTML = t; rr.append(li); });
 }
 
 /* ---------- decklist analyser (public) ---------- */

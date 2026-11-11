@@ -160,3 +160,23 @@ footer p { margin: 4px 0; }
 .chips-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
 .chip.good { border-color: var(--good); color: var(--good); } .chip.bad { border-color: var(--critical); color: var(--critical); }
+.ms-wide .pop { min-width: 380px; max-height: 460px; }
+.sharebar { display: inline-block; height: 8px; border-radius: 0 4px 4px 0; background: var(--series-1); margin-right: 8px; vertical-align: middle; opacity: .75; }
+.toc a { color: var(--accent, var(--series-1)); }
+.cx-cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.cx-cat { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.cx-cat h3 { margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+.cx-cat h3 i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.cx-cat p, .cx-cat ul { margin: 6px 0; font-size: 13px; }
+.cx-cat ul { padding-left: 18px; }
+details.cx-fn { border-top: 1px solid var(--grid); padding: 8px 0; }
+details.cx-fn > summary { cursor: pointer; font-weight: 600; }
+details.cx-fn > summary small { font-weight: 400; color: var(--text-secondary); margin-left: 6px; }
+.cx-sub { margin: 8px 0 4px 14px; }
+.cx-sub h4 { margin: 6px 0 2px; font-size: 13px; }
+.cx-hab { margin: 2px 0 2px 14px; font-size: 13px; }
+.cx-hab b { font-weight: 600; }
+.cx-ex { color: var(--text-secondary); }
+.cx-prose p, .cx-prose li { font-size: 14px; line-height: 1.55; max-width: 860px; }
+.cx-prose li { margin-bottom: 4px; }
+.cx-link { background: none; border: 0; padding: 0; color: var(--series-1); cursor: pointer; font: inherit; text-decoration: underline; }
