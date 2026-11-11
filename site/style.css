@@ -153,3 +153,10 @@ footer p { margin: 4px 0; }
 .tip { text-decoration: underline dotted var(--text-muted); text-underline-offset: 3px; cursor: help; }
 .btn { font: inherit; font-size: 13px; font-weight: 600; border: 1px solid var(--text-primary); background: var(--text-primary); color: var(--surface-1); border-radius: 6px; padding: 6px 14px; cursor: pointer; }
 .btn:hover { opacity: .9; }
+.deck-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.deck-tile { text-align: left; font: inherit; border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px; padding: 8px 10px; cursor: pointer; color: var(--text-primary); }
+.deck-tile:hover, .deck-tile[aria-pressed="true"] { border-color: var(--text-primary); }
+.deck-tile small { display: block; color: var(--text-secondary); margin-top: 2px; }
+.chips-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+.chip.good { border-color: var(--good); color: var(--good); } .chip.bad { border-color: var(--critical); color: var(--critical); }

@@ -20,6 +20,7 @@
     <button role="tab" data-tab="overview" aria-selected="true">Visão geral</button>
     <button role="tab" data-tab="movers">Variações</button>
     <button role="tab" data-tab="cards">Cartas</button>
+    <button role="tab" data-tab="insights" id="tab-btn-ins" hidden>Meta</button>
     <button role="tab" data-tab="deck" id="tab-btn-deck" hidden>Analisar deck</button>
     <button role="tab" data-tab="meta" data-duels hidden>Meta × preço</button>
     <button role="tab" data-tab="decks" data-duels hidden>Decks</button>
@@ -175,6 +176,29 @@
         <details class="small muted" style="margin-top:10px"><summary>Como a categoria é definida</summary><p id="cat-method"></p></details></article>
       <article class="card"><h2 id="catmu-title">Confrontos entre categorias</h2><p class="muted small" id="catmu-note"></p><div class="table-wrap"><table class="t" id="t-catmu"></table></div></article>
     </div>
+    <div class="grid2" id="why-box" hidden>
+      <article class="card">
+        <div class="row-between"><h2 id="why-title">O que os oponentes difíceis têm</h2>
+          <div class="controls"><div class="seg" role="group" aria-label="Nível" data-ctl="whyLevel">
+            <button type="button" data-v="func">Função</button><button type="button" data-v="sub">Subfunção</button><button type="button" data-v="hab">Habilidade</button>
+          </div></div></div>
+        <p class="muted small" id="why-note"></p>
+        <div class="chart" id="why-wrap" style="height:360px"><canvas id="c-why"></canvas></div>
+      </article>
+      <article class="card">
+        <h2 id="whycat-title">Contra cada categoria</h2>
+        <p class="muted small" id="whycat-note"></p>
+        <div class="table-wrap"><table class="t" id="t-whycat"></table></div>
+        <p class="muted small" id="whyops-note" style="margin-top:12px"></p>
+        <div class="table-wrap"><table class="t" id="t-whyops"></table></div>
+      </article>
+    </div>
+    <article class="card" id="vscat-box">
+      <div class="row-between"><h2 id="vscat-title">O que funciona contra cada categoria</h2>
+        <div class="controls"><div class="seg" role="group" aria-label="Categoria do oponente" data-ctl="vsCat" id="vscat-seg"></div></div></div>
+      <p class="muted small" id="vscat-note"></p>
+      <div class="chart" id="vscat-wrap" style="height:360px"><canvas id="c-vscat"></canvas></div>
+    </article>
     <article class="card" id="comp-box">
       <div class="row-between">
         <h2 id="comp-title">Composição</h2>
@@ -215,6 +239,46 @@
     </div>
   </section>
 
+  <section id="tab-insights" class="tab" hidden>
+    <article class="card">
+      <h2>Categorias de deck</h2>
+      <p class="muted small" id="in-cat-note"></p>
+      <div class="kpis small-kpis" id="in-cat-kpis"></div>
+      <h3 style="margin-top:14px">Composição média de cada categoria (cartas por 60)</h3>
+      <div class="table-wrap"><table class="t" id="t-in-cent"></table></div>
+    </article>
+    <article class="card">
+      <div class="row-between"><h2 id="in-beat-title">O que funciona contra cada categoria</h2>
+        <div class="controls"><div class="seg" role="group" aria-label="Categoria" data-ctl="insCat" id="in-cat-seg"></div></div></div>
+      <p class="muted small" id="in-beat-note"></p>
+      <div class="grid2">
+        <div><h3>Efeito de cada função no win rate</h3><div class="chart" id="in-eff-wrap" style="height:300px"><canvas id="c-in-eff"></canvas></div><p class="muted small" id="in-eff-note"></p></div>
+        <div><h3>O que os decks que vão bem têm a mais</h3><div class="chart" id="in-beat-wrap" style="height:300px"><canvas id="c-in-beat"></canvas></div></div>
+      </div>
+    </article>
+    <article class="card">
+      <h2>Decks do meta</h2>
+      <p class="muted small" id="in-decks-note"></p>
+      <div id="in-decks" class="deck-tiles"></div>
+    </article>
+    <article class="card" id="in-sheet" hidden>
+      <div class="row-between"><h2 id="in-sh-title"></h2><div class="controls"><button type="button" class="btn" id="in-sh-analyze">Analisar esta lista</button></div></div>
+      <p class="muted small" id="in-sh-sub"></p>
+      <div class="grid2">
+        <div>
+          <h3>Contra cada categoria</h3><div id="in-sh-vs" class="chips-row"></div>
+          <h3 style="margin-top:14px">Sofre contra decks com</h3><ul id="in-sh-hard" class="small"></ul>
+          <h3>Vai bem contra decks com</h3><ul id="in-sh-easy" class="small"></ul>
+          <h3>Composição por função</h3>
+          <div class="chart" style="height:280px"><canvas id="c-in-sh"></canvas></div>
+        </div>
+        <div><h3>Lista</h3><div class="table-wrap"><table class="t" id="t-in-sh"></table></div></div>
+      </div>
+      <div class="table-wrap" style="margin-top:10px"><table class="t" id="t-in-sh-comp"></table></div>
+    </article>
+    <p class="muted small" id="in-credit"></p>
+  </section>
+
   <section id="tab-deck" class="tab" hidden>
     <article class="card">
       <h2>Analisar uma decklist</h2>
@@ -229,6 +293,46 @@
         <div class="kpi"><span class="kpi-label">Tintas</span><span class="kpi-value" id="dk-inks">–</span></div>
         <div class="kpi"><span class="kpi-label">Custo médio (personagens)</span><span class="kpi-value" id="dk-cost">–</span><span class="kpi-sub" id="dk-cost-sub"></span></div>
         <div class="kpi"><span class="kpi-label">Preço da lista</span><span class="kpi-value" id="dk-price">–</span><span class="kpi-sub">impressão normal, TCGplayer</span></div>
+      </div>
+      <div id="dl-meta" hidden>
+        <article class="card">
+          <h2>Perfil de categoria</h2>
+          <p class="muted small" id="dlm-prof-note"></p>
+          <div class="grid2">
+            <div class="chart" style="height:200px"><canvas id="c-dlm-cat"></canvas></div>
+            <div class="table-wrap"><table class="t" id="t-dlm-feat"></table></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="row-between"><h2>Win rate estimado contra cada categoria</h2>
+            <div class="controls"><div class="seg" role="group" aria-label="Categoria" data-ctl="dlmCat" id="dlm-cat-seg"></div></div></div>
+          <p class="muted small" id="dlm-est-note"></p>
+          <div class="grid2">
+            <div class="table-wrap"><table class="t" id="t-dlm-cat"></table></div>
+            <div><h3 id="dlm-why-title">Por que esse número</h3><div class="chart" id="dlm-why-wrap" style="height:260px"><canvas id="c-dlm-why"></canvas></div></div>
+          </div>
+        </article>
+        <div class="grid2" id="dlm-mu-box">
+          <article class="card"><h2>Melhores confrontos estimados</h2><p class="muted small" id="dlm-best-note"></p><div class="table-wrap"><table class="t" id="t-dlm-best"></table></div></article>
+          <article class="card"><h2>Piores confrontos estimados</h2><p class="muted small" id="dlm-worst-note"></p><div class="table-wrap"><table class="t" id="t-dlm-worst"></table></div></article>
+        </div>
+        <article class="card">
+          <h2>Simulador de trocas</h2>
+          <p class="muted small" id="dlm-sim-note"></p>
+          <div class="table-wrap"><table class="t" id="t-dlm-sim"></table></div>
+          <div id="dlm-sug" hidden style="margin-top:14px">
+            <h3 id="dlm-sug-title"></h3>
+            <div class="grid2">
+              <div><p class="muted small" id="dlm-add-note"></p><div class="table-wrap"><table class="t" id="t-dlm-add"></table></div></div>
+              <div><p class="muted small" id="dlm-cut-note"></p><div class="table-wrap"><table class="t" id="t-dlm-cut"></table></div></div>
+            </div>
+          </div>
+        </article>
+        <article class="card">
+          <h2>Decks mais parecidos</h2>
+          <p class="muted small" id="dlm-note"></p>
+          <div class="table-wrap"><table class="t" id="t-dlm-near"></table></div>
+        </article>
       </div>
       <article class="card">
         <div class="row-between">
@@ -320,6 +424,7 @@
   <p>Preços: market price do <a href="https://www.tcgplayer.com/" target="_blank" rel="noopener">TCGplayer</a> via <a href="https://tcgcsv.com" target="_blank" rel="noopener">TCGCSV</a>, atualizados diariamente. Histórico desde fev/2024 (semanal) e diário nos últimos 90 dias.</p>
   <p>Formatos: Core = coleções dentro da rotação atual (9 em diante), contando reimpressões; Infinity = todas as coleções principais, menos a lista de banidas. Illumineer's Quest e promos sem versão numa coleção principal ficam fora dos dois.</p>
   <p data-duels hidden>Uso no meta e classificação "mechanic": <a href="https://duels.ink" target="_blank" rel="noopener">Duels.ink</a> (ranqueado online melhor de 1). Versão privada.</p>
+  <p id="ins-foot" hidden>Análises de meta (abas Meta e Analisar deck): estudo próprio a partir de dados públicos de partidas do <a href="https://duels.ink" target="_blank" rel="noopener">Duels.ink</a> (ranqueado online melhor de 1). O site não reproduz estatísticas do Duels.ink; listas de referência creditadas aos jogadores. Pedidos de correção ou remoção: <a href="https://github.com/gabrielmecaugusto-coder/lorcana-dashboard/issues" target="_blank" rel="noopener">abra uma issue</a>.</p>
   <p>Site de fã, não afiliado à Disney, Ravensburger ou TCGplayer. Não é recomendação de investimento.</p>
 </footer>
 </div>

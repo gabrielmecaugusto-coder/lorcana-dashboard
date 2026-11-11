@@ -19,7 +19,7 @@ const S = {
   filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), cats: new Set(), printing: "", min: 0, q: "" },
   duels: null, duelsByPid: new Map(), duelsById: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
   deckSort: { key: "wr", dir: -1 }, mechSort: { key: "dShare", dir: -1 }, mechOpen: null, mechLines: {}, momSel: new Set(), mcSort: { key: "s1", dir: -1 }, mcPage: 0, muSort: { key: "games", dir: -1 }, selDeck: null, /* deck key */ deckMin: 2000,
-  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", catGran: "era", mechGran: "week", mechLevel: "func", compLevel: "func", dlLevel: "func", gran: "monthly", ev: { rel: true, rot: true } },
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", catGran: "era", mechGran: "week", mechLevel: "func", compLevel: "func", dlLevel: "func", insCat: "Aggro", whyLevel: "sub", vsCat: "Aggro", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "price", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
@@ -48,6 +48,7 @@ async function init() {
   S.sets.forEach((s) => S.setsById.set(s.groupId, s));
   // Card functions (public): powers the decklist analyser.
   try { S.fn = await getJSON("data/functions.json"); $("tab-btn-deck").hidden = false; } catch (e) { S.fn = null; }
+  try { if (S.fn) { S.ins = await getJSON("data/insights.json"); $("tab-btn-ins").hidden = false; $("ins-foot").hidden = false; } } catch (e) { S.ins = null; }
   // Optional Duels.ink data: present only in the private build.
   try {
     S.duels = await getJSON("data/duels.json");
@@ -102,6 +103,8 @@ function buildFilters() {
   if (S.dcur) S.ms.decks = multiSelect($("f-deck"), [...S.dcur.decks].sort((a, b) => b.games - a.games).map((d) => [d.key, d.name]), f.decks, "Todos", changed);
   if (S.duels && S.duels.taxonomy) S.ms.mom = multiSelect($("f-mom"), S.duels.taxonomy.moments.map((m, i) => [String(i), m, (S.duels.taxonomy.desc || {}).moments?.[i]]), S.momSel, "Todos", () => { S.mechOpen = null; renderMechs(); });
   if (S.duels && !S.duels.taxonomy) { S.view.mechLevel = "duels"; document.querySelectorAll('[data-ctl="mechLevel"] button:not([data-v="duels"])').forEach((b) => b.hidden = true); }
+  if (S.duels && S.duels.decks && S.duels.decks.categories) $("vscat-seg").replaceChildren(...S.duels.decks.categories.order.map((c) => { const b = el("button", null, "vs " + c); b.type = "button"; b.dataset.v = c; b.title = CAT_DESC[c]; return b; }));
+  else $("vscat-box").hidden = true;
   if (S.duels && S.duels.decks && S.duels.decks.categories) S.ms.cats = multiSelect($("f-cat"), S.duels.decks.categories.order.map((c) => [c, c, CAT_DESC[c]]), f.cats, "Todas", changed);
   else ["cat-filter-wrap", "cat-box", "catevo-box", "comp-box"].forEach((id) => $(id).hidden = true);
   $("decks-min").addEventListener("input", (e) => { S.deckMin = +e.target.value || 0; renderDecks(); });
@@ -278,7 +281,8 @@ function render() {
   if (S.tab === "decks") renderDecks();
   if (S.tab === "mechs") renderMechs();
   if (S.tab === "deck") renderDeckAnalysis();
-  document.querySelector(".filters").hidden = S.tab === "deck";
+  if (S.tab === "insights") renderInsights();
+  document.querySelector(".filters").hidden = S.tab === "deck" || S.tab === "insights";
 }
 
 function renderOverview(rows) {
@@ -763,6 +767,8 @@ function renderDecks() {
   renderDeckDetail();
   renderCategories(ek);
   renderComposition(ek, byColors ? null : rows.map((r) => r.d));
+  renderMatchupDrivers(ek);
+  renderVsCategory(ek);
 }
 
 /* ---------- deck composition by função / subfunção / habilidade ---------- */
@@ -822,6 +828,172 @@ function renderComposition(ek, decks) {
   drawComposition(parts, S.view.compLevel, "c-comp", "t-comp", 60);
 }
 
+/* ---------- what drives good and bad matchups ---------- */
+function levelFns(T, level) {
+  return {
+    keyOf: { func: (hi) => T.subs[T.habs[hi][0]][0], sub: (hi) => T.habs[hi][0], hab: (hi) => hi }[level],
+    labelOf: { func: (k) => T.funcs[k], sub: (k) => `${T.funcs[T.subs[k][0]]} › ${T.subs[k][1]}`, hab: (k) => T.habs[k][1] }[level],
+    descOf: (k) => (T.desc ? { func: T.desc.funcs, sub: T.desc.subs, hab: T.desc.habs }[level][k] : "") || "",
+    skip: { func: (k) => k >= 7, sub: (k) => T.subs[k][0] >= 7, hab: (k) => T.subs[T.habs[k][0]][0] >= 7 }[level],
+  };
+}
+/** cards per 60 that have each function/subfunção/habilidade (a card counts fully in each) */
+function deckComp(d, T, keyOf) {
+  const acc = new Map(), tot = Object.values(d.list).reduce((a, v) => a + v, 0) || 1;
+  Object.entries(d.list).forEach(([cid, cp]) => { const dc = S.duelsById.get(cid); new Set((dc && dc.fx || []).map(([hi]) => keyOf(hi))).forEach((k) => acc.set(k, (acc.get(k) || 0) + cp * 60 / tot)); });
+  return acc;
+}
+function wcorrJs(xs, ys, ws) {
+  const W = ws.reduce((a, b) => a + b, 0), mx = xs.reduce((a, x, i) => a + ws[i] * x, 0) / W, my = ys.reduce((a, y, i) => a + ws[i] * y, 0) / W;
+  let c = 0, vx = 0, vy = 0; xs.forEach((x, i) => { c += ws[i] * (x - mx) * (ys[i] - my); vx += ws[i] * (x - mx) ** 2; vy += ws[i] * (ys[i] - my) ** 2; });
+  return vx && vy ? c / Math.sqrt(vx * vy) : 0;
+}
+/** rows: [{comp: Map, wr, g, name}] -> features ranked by (bottom third − top third) cards/60, with weighted correlation */
+function driverStats(rows, keys) {
+  const sorted = [...rows].sort((a, b) => a.wr - b.wr), n = Math.max(1, Math.round(sorted.length / 3));
+  const bad = sorted.slice(0, n), good = sorted.slice(-n);
+  const avg = (set, k) => set.reduce((a, r) => a + (r.comp.get(k) || 0) * r.g, 0) / set.reduce((a, r) => a + r.g, 0);
+  return { bad, good, feats: keys.map((k) => ({ k, bad: avg(bad, k), good: avg(good, k), corr: wcorrJs(rows.map((r) => r.comp.get(k) || 0), rows.map((r) => r.wr), rows.map((r) => r.g)) }))
+    .map((f) => ({ ...f, diff: f.bad - f.good })) };
+}
+function divergingChart(id, wrapId, feats, valueOf, posColor, negColor, tooltip) {
+  const pos = feats.filter((f) => valueOf(f) > 0).sort((a, b) => valueOf(b) - valueOf(a)).slice(0, 8), neg = feats.filter((f) => valueOf(f) < 0).sort((a, b) => valueOf(b) - valueOf(a)).slice(-6);
+  const fts = pos.concat(neg);
+  $(wrapId).style.height = Math.max(240, fts.length * 26 + 60) + "px";
+  barChart(id, fts.map((f) => f.label), [{ data: fts.map((f) => Math.round(valueOf(f) * 10) / 10), backgroundColor: fts.map((f) => valueOf(f) >= 0 ? posColor : negColor), borderSkipped: false }],
+    { horizontal: true, labelMax: 40, fmt: (v) => (v > 0 ? "+" : "") + Number(v).toLocaleString("pt-BR"), tooltip: (i) => tooltip(fts[i]) });
+}
+const MU_MIN = 300; // games for a matchup to count
+const GENERIC_ARCH = /^(Midrange|Aggro|Control|Outros|Tempo)$/;
+const shortDeck = (d) => { const a = d.name.split(" · ")[1] || d.name; return GENERIC_ARCH.test(a) ? d.name : a; };
+function renderMatchupDrivers(ek) {
+  const box = $("why-box"), T = S.duels.taxonomy, era = deckEraData(ek);
+  const d = S.view.deckView === "deck" && S.selDeck && era.decks.find((x) => x.key === S.selDeck);
+  if (!T || !d || !(era.matchups || []).length) { box.hidden = true; return; }
+  box.hidden = false; syncView();
+  const idx = era.decks.indexOf(d), level = S.view.whyLevel, L = levelFns(T, level);
+  const ops = era.matchups.filter((m) => m[0] === idx && m[1] !== idx && m[2] >= MU_MIN && Object.keys(era.decks[m[1]].list || {}).length)
+    .map((m) => ({ o: era.decks[m[1]], g: m[2], wr: m[3] / m[2], comp: deckComp(era.decks[m[1]], T, L.keyOf) }));
+  const f1 = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  $("why-title").textContent = `O que os oponentes difíceis têm: ${d.name}`;
+  if (ops.length < 6) { $("why-note").textContent = "Poucos confrontos com dados suficientes nesta expansão."; upsert("c-why", { type: "bar", data: { labels: [], datasets: [] } }); }
+  else {
+    const keys = [...new Set(ops.flatMap((r) => [...r.comp.keys()]))].filter((k) => !L.skip(k));
+    const st = driverStats(ops, keys);
+    const feats = st.feats.filter((f) => Math.abs(f.diff) >= 0.5).sort((a, b) => b.diff - a.diff).map((f) => ({ ...f, label: L.labelOf(f.k), desc: L.descOf(f.k) }));
+    $("why-note").textContent = `Compara a lista dos ${st.bad.length} oponentes contra quem ${d.name} vai pior (${st.bad.map((r) => `${shortDeck(r.o)} ${pct1(r.wr)}`).join(", ")}) com a dos ${st.good.length} contra quem vai melhor. Barra vermelha: o oponente difícil tem mais cartas com aquilo (por 60); azul: os fáceis têm mais. Confrontos com pelo menos ${MU_MIN} partidas. Associação, não prova de causa.`;
+    divergingChart("c-why", "why-wrap", feats, (f) => f.diff, css("--critical"), css("--series-1"),
+      (f) => [`Oponentes difíceis: ${f1(f.bad)} cartas · fáceis: ${f1(f.good)}`, `Correlação com o win rate de ${d.name}: ${f.corr.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`, ...wrapText(f.desc, 55)]);
+  }
+  // win rate by opponent category + worst/best opponents
+  const C = S.duels.decks.categories, byCat = new Map(C.order.map((c) => [c, [0, 0]]));
+  era.matchups.filter((m) => m[0] === idx && m[1] !== idx).forEach(([, j, g, w]) => { const r = catOf(era.decks[j].key, ek); if (r && byCat.has(r.cat)) { byCat.get(r.cat)[0] += g; byCat.get(r.cat)[1] += w; } });
+  $("whycat-title").textContent = `Contra cada categoria: ${d.name}`;
+  $("whycat-note").textContent = "Win rate somando os confrontos com todos os decks de cada categoria.";
+  const t = $("t-whycat"); t.replaceChildren(); const h = t.createTHead().insertRow(); ["Categoria do oponente", "Partidas", "Win rate"].forEach((x, i) => h.append(el("th", i ? "num" : "", x)));
+  const b = t.createTBody();
+  C.order.forEach((c) => { const [g, w] = byCat.get(c); const tr = b.insertRow(); tr.style.cursor = "default"; catCell(tr, { cat: c }); numCell(tr, g.toLocaleString("pt-BR")); const wc = numCell(tr, g ? pct1(w / g) : "–"); if (g) wc.className += wrClass(w / g); });
+  // worst and best opponents with what stands out in their list
+  const glob = new Map(); ops.forEach((r) => r.comp.forEach((v, k) => glob.set(k, (glob.get(k) || 0) + v * r.g))); const G = ops.reduce((a, r) => a + r.g, 0);
+  const stand = (r) => [...r.comp].filter(([k]) => !L.skip(k)).map(([k, v]) => [k, v - (glob.get(k) || 0) / G]).sort((a, b2) => b2[1] - a[1]).slice(0, 2).map(([k, v]) => `${L.labelOf(k)} (+${f1(v)})`).join(", ");
+  const sorted = [...ops].sort((a, b2) => a.wr - b2.wr), pick = sorted.slice(0, 4).concat(sorted.slice(-3).reverse());
+  $("whyops-note").textContent = "Piores e melhores confrontos, e o que mais se destaca na lista de cada oponente em relação à média dos oponentes (cartas por 60).";
+  const t2 = $("t-whyops"); t2.replaceChildren(); const h2 = t2.createTHead().insertRow(); ["Oponente", "Win rate", "Destaque na lista do oponente"].forEach((x, i) => h2.append(el("th", i === 1 ? "num" : "", x)));
+  const b2 = t2.createTBody();
+  pick.forEach((r, i) => { const tr = b2.insertRow(); tr.style.cursor = "default"; if (i === 4) tr.style.borderTop = "2px solid var(--border)";
+    const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(r.o.colors), document.createTextNode(r.o.name)); nc.append(el("small", null, `${r.g.toLocaleString("pt-BR")} partidas`));
+    const wc = numCell(tr, pct1(r.wr)); wc.className += wrClass(r.wr); const sc = tr.insertCell(); sc.className = "small"; sc.style.whiteSpace = "normal"; sc.textContent = stand(r); });
+}
+function renderVsCategory(ek) {
+  const box = $("vscat-box"), T = S.duels.taxonomy, era = deckEraData(ek), C = S.duels.decks.categories;
+  if (!T || !C || !(era.matchups || []).length) { box.hidden = true; return; }
+  box.hidden = false; syncView();
+  const cat = S.view.vsCat, level = S.view.whyLevel, L = levelFns(T, level), f1 = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const agg = new Map();
+  era.matchups.forEach(([i, j, g, w]) => { if (i === j) return; const r = catOf(era.decks[j].key, ek); if (!r || r.cat !== cat) return; const a = agg.get(i) || [0, 0]; a[0] += g; a[1] += w; agg.set(i, a); });
+  const rows = [...agg].filter(([i, [g]]) => g >= 500 && Object.keys(era.decks[i].list || {}).length).map(([i, [g, w]]) => ({ o: era.decks[i], g, wr: w / g, comp: deckComp(era.decks[i], T, L.keyOf) }));
+  $("vscat-title").textContent = `O que funciona contra ${cat}`;
+  if (rows.length < 6) { $("vscat-note").textContent = "Poucos decks com confrontos suficientes contra essa categoria nesta expansão."; upsert("c-vscat", { type: "bar", data: { labels: [], datasets: [] } }); return; }
+  const keys = [...new Set(rows.flatMap((r) => [...r.comp.keys()]))].filter((k) => !L.skip(k));
+  const st = driverStats(rows, keys);
+  const feats = st.feats.map((f) => ({ ...f, gain: -f.diff, label: L.labelOf(f.k), desc: L.descOf(f.k) })).filter((f) => Math.abs(f.gain) >= 0.5).sort((a, b) => b.gain - a.gain);
+  const nm = (r) => shortDeck(r.o);
+  $("vscat-note").textContent = `Compara a lista dos ${st.good.length} decks que mais ganham de ${cat} (${st.good.slice().reverse().map((r) => `${nm(r)} ${pct1(r.wr)}`).join(", ")}) com a dos ${st.bad.length} que mais perdem (${st.bad.map((r) => `${nm(r)} ${pct1(r.wr)}`).join(", ")}). Barra verde: quem vai bem contra ${cat} tem mais cartas com aquilo (por 60); vermelha: quem vai mal tem mais. Decks com pelo menos 500 partidas contra a categoria. O nível (função, subfunção, habilidade) é o mesmo do gráfico acima.`;
+  divergingChart("c-vscat", "vscat-wrap", feats, (f) => f.gain, css("--good") || "#1baf7a", css("--critical"),
+    (f) => [`Quem vai bem: ${f1(f.good)} cartas · quem vai mal: ${f1(f.bad)}`, `Correlação com o win rate contra ${cat}: ${f.corr.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`, ...wrapText(f.desc, 55)]);
+}
+
+/** ident -> the card to show: Normal printing from a main set (not promo), cheapest */
+function refCards() {
+  if (S._refCards) return S._refCards;
+  const m = new Map(), score = (c) => (c.printing === "Normal" ? 0 : 2) + (/^\d+$/.test(c.setCode || "") ? 0 : 1);
+  S.cards.forEach((c) => { const h = m.get(c.ident); if (!h || score(c) < score(h) || (score(c) === score(h) && (c.price || 99) < (h.price || 99))) m.set(c.ident, c); });
+  return (S._refCards = m);
+}
+/* ---------- Meta tab (public): our analyses, built from insights.json ---------- */
+function renderInsights() {
+  const I = S.ins; if (!I || !S.fn) return;
+  const T = S.fn, O = I.categories.order, f1 = (v) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const seg = $("in-cat-seg"); if (!seg.children.length) O.forEach((c) => { const b = el("button", null, "vs " + c); b.type = "button"; b.dataset.v = c; b.title = CAT_DESC[c]; b.onclick = () => { S.view.insCat = c; renderInsights(); }; seg.append(b); });
+  seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === S.view.insCat));
+  // 1. categories
+  $("in-cat-note").textContent = `Classificamos os decks do ranqueado online (${I.eraName}) em quatro categorias pelo jeito como ganham: velocidade das vitórias, duração das partidas, curva, quantidade de personagens, wipes, remoção e compra. Presença = fatia das partidas jogadas com decks de cada categoria. Atualizado em ${I.updated.split("-").reverse().join("/")}.`;
+  const kp = $("in-cat-kpis"); kp.replaceChildren();
+  O.forEach((c) => { const k = el("div", "kpi"); const lab = el("span", "kpi-label tip", c); lab.title = CAT_DESC[c]; const v = el("span", "kpi-value", pct1(I.categories.presence[c])); v.style.color = catColor(c);
+    k.append(lab, v, el("span", "kpi-sub", CAT_DESC[c])); kp.append(k); });
+  const tc = $("t-in-cent"); tc.replaceChildren(); const hc = tc.createTHead().insertRow(); ["", ...O].forEach((h, i) => hc.append(el("th", i ? "num" : "", h)));
+  const bc = tc.createTBody();
+  I.features.forEach((l, k) => { const tr = bc.insertRow(); tr.style.cursor = "default"; tr.insertCell().textContent = l;
+    const vals = O.map((c) => I.categories.centroid[c] ? I.categories.centroid[c][k] : null), mx = Math.max(...vals.filter((v) => v != null));
+    vals.forEach((v) => { const td = numCell(tr, v == null ? "–" : f1(v)); if (v === mx) td.style.fontWeight = "700"; }); });
+  // 2. what beats each category
+  const c = S.view.insCat, m = I.model.models[c];
+  $("in-beat-title").textContent = `O que funciona contra ${c}`;
+  if (m) {
+    const g = 1 - m.rmse / m.base, q = g >= 0.25 ? "boa" : g >= 0.12 ? "razoável" : "fraca";
+    const eff = I.features.map((l, k) => ({ label: l, k, v: m.fit.unit[k] * 100 })).filter((e) => Math.abs(e.v) >= 0.05);
+    divergingChart("c-in-eff", "in-eff-wrap", eff, (e) => e.v, css("--good") || "#1baf7a", css("--critical"),
+      (e) => [`${e.v > 0 ? "+" : ""}${f1(e.v)} p.p. no win rate contra ${c} por ${e.k === 8 ? "ponto a mais de custo médio" : "carta a mais"}`, "Comparado a um deck igual com uma carta a menos dessa função."]);
+    $("in-eff-note").textContent = `Fórmula ajustada com ${m.n} decks do meta: quanto cada carta a mais de uma função (ou cada ponto a mais de custo médio dos personagens) muda o win rate contra ${c}, mantendo o resto igual. Erro típico da fórmula: ± ${f1(m.rmse * 100)} p.p. (precisão ${q}). É associação, não causa.`;
+  }
+  const bt = Object.entries(I.beats[c] || {}).map(([k, v]) => ({ label: `${T.funcs[T.subs[+k][0]]} › ${T.subs[+k][1]}`, v, desc: T.desc.subs[+k] }));
+  divergingChart("c-in-beat", "in-beat-wrap", bt, (e) => e.v, css("--good") || "#1baf7a", css("--critical"), (e) => [`${e.v > 0 ? "+" : ""}${f1(e.v)} cartas por 60 nos decks que vão melhor contra ${c}`, ...wrapText(e.desc, 55)]);
+  $("in-beat-note").textContent = `À esquerda, o efeito estimado de cada função. À direita, comparamos a lista dos decks que mais ganham de ${c} com a dos que mais perdem (terço de cima contra terço de baixo): verde é o que os vencedores têm a mais.`;
+  // 3. deck tiles
+  $("in-decks-note").textContent = "Listas de referência escolhidas por nós entre as builds mais jogadas de cada arquétipo, com crédito. Clique num deck para ver a ficha.";
+  const box = $("in-decks"); box.replaceChildren();
+  I.decks.forEach((d) => { const b = el("button", "deck-tile"); b.type = "button"; b.setAttribute("aria-pressed", S.insDeck === d.key);
+    b.append(inkDots(d.colors), document.createTextNode(shortDeck(d)), el("small", null, `${d.colors.join("/")} · ${d.category}`));
+    b.onclick = () => { S.insDeck = S.insDeck === d.key ? null : d.key; renderInsights(); if (S.insDeck) $("in-sheet").scrollIntoView({ behavior: "smooth", block: "start" }); };
+    box.append(b); });
+  $("in-credit").textContent = I.credit;
+  renderInsightSheet();
+}
+function renderInsightSheet() {
+  const I = S.ins, T = S.fn, d = I.decks.find((x) => x.key === S.insDeck), sh = $("in-sheet");
+  if (!d) { sh.hidden = true; return; }
+  sh.hidden = false;
+  const byId = refCards();
+  const items = Object.entries(d.list).map(([id, n]) => ({ c: byId.get(id) || { name: id, ident: id }, n }));
+  const total = items.reduce((a, x) => a + x.n, 0);
+  $("in-sh-title").textContent = d.name;
+  $("in-sh-sub").textContent = `${d.category} · ${total} cartas · lista de referência: ${d.source} · preço da lista ≈ ${usd0(items.reduce((a, x) => a + x.n * (x.c.price || 0), 0))} (TCGplayer, impressão normal)`;
+  const vs = $("in-sh-vs"); vs.replaceChildren();
+  I.categories.order.forEach((c) => { const l = d.vsCategory[c]; if (!l) return; const ch = el("span", "chip" + (l === "favorável" ? " good" : l === "desfavorável" ? " bad" : ""), `vs ${c}: ${l}`); ch.title = CAT_DESC[c]; vs.append(ch); });
+  const subLabel = (k) => `${T.funcs[T.subs[k][0]]} › ${T.subs[k][1]}`;
+  [["in-sh-hard", d.struggles], ["in-sh-easy", d.thrives]].forEach(([id, arr]) => { const ul = $(id); ul.replaceChildren();
+    (arr.length ? arr : [null]).forEach((k) => { const li = el("li", k == null ? null : "tip", k == null ? "Sem padrão claro nos dados." : subLabel(k)); if (k != null) li.title = T.desc.subs[k]; ul.append(li); }); });
+  const parts = compParts(T, items.map((x) => ({ fx: S.fn.byIdent[x.c.ident], w: x.n, name: x.c.name })), "func", total);
+  drawComposition(parts, "func", "c-in-sh", "t-in-sh-comp", total);
+  const t = $("t-in-sh"); t.replaceChildren(); const h = t.createTHead().insertRow(); [["Cópias", "num"], ["Carta", ""], ["Custo", "num"], ["Funções", ""], ["Preço", "num"]].forEach(([x, cl]) => h.append(el("th", cl, x)));
+  const b = t.createTBody();
+  items.sort((a, b2) => (+a.c.cost || 0) - (+b2.c.cost || 0) || a.c.name.localeCompare(b2.c.name)).forEach((x) => { const tr = b.insertRow(); tr.tabIndex = 0; if (x.c.id) tr.onclick = () => openDetail(x.c);
+    numCell(tr, x.n); if (x.c.id) nameCell(tr, x.c); else tr.insertCell().textContent = x.c.name; numCell(tr, x.c.cost || "–");
+    const fc = tr.insertCell(); fc.className = "small"; fc.textContent = [...new Set((S.fn.byIdent[x.c.ident] || []).map(([hi]) => T.funcs[T.subs[T.habs[hi][0]][0]]))].join(", ") || "–";
+    numCell(tr, usd(x.c.price)); });
+  $("in-sh-analyze").onclick = () => { S.dlText = items.map((x) => `${x.n} ${x.c.ident || x.c.name}`).join("\n"); $("dl-text").value = S.dlText; try { localStorage.setItem("lorcana-decklist", S.dlText); } catch (e) { /* storage off */ } S.tab = "deck"; changed(); };
+}
+
 /* ---------- decklist analyser (public) ---------- */
 const normName = (n) => n.toLowerCase().replace(/[\u2018\u2019\u02bc`´]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, " - ").replace(/\s+/g, " ").replace(/\s*\([^)]*\)\s*$/, "").trim();
 let identIndex = null;
@@ -878,6 +1050,7 @@ function renderDeckAnalysis() {
   items.forEach((x) => new Set(fxOf(x.c).map(([, mi]) => mi)).forEach((mi) => { mom[mi] += x.n; }));
   const mk = T.moments.map((m, i) => i).filter((i) => mom[i] && T.moments[i] !== "—").sort((a, b) => mom[b] - mom[a]);
   barChart("c-dl-mom", mk.map((i) => T.moments[i]), [{ data: mk.map((i) => mom[i]) }], { horizontal: true, fmt: (v) => v, tooltip: (i) => [`${mom[mk[i]]} cópias`, ...wrapText(T.desc.moments[mk[i]], 50)] });
+  renderDeckMetaRead(items);
   // card table
   const t = $("t-dl"); t.replaceChildren();
   const hr = t.createTHead().insertRow(); [["Cópias", "num"], ["", ""], ["Carta", ""], ["Custo", "num"], ["Função · habilidade · momento", ""], ["Preço", "num"], ["Subtotal", "num"]].forEach(([h, c]) => hr.append(el("th", c, h)));
@@ -892,6 +1065,195 @@ function renderDeckAnalysis() {
   });
 }
 
+/* ---------- decklist vs the meta (private build only: uses Duels.ink lists and matchups) ----------
+   Model: for each opponent category, a ridge regression (weighted by games) of the win rate against that
+   category on the deck's composition: cards per 60 in each of the 7 functions, characters per 60 and
+   average character cost. Error = leave-one-out RMSE (hide one deck, fit on the rest, predict it). */
+const FEAT_LABELS = ["Remoção", "Controle de mesa", "Draw", "Aceleração", "Disrupção", "Pressão de lore", "Proteção / evasão", "Personagens", "Custo médio dos personagens"];
+const FEAT_UNIT = (k) => k === 8 ? "ponto de custo médio" : "carta";
+function featuresOf(entries, T) {  // entries: [{fx, n, type, cost}]
+  const x = new Array(9).fill(0); let tot = 0, ch = 0, chc = 0;
+  entries.forEach(({ fx, n, type, cost }) => { tot += n;
+    new Set((fx || []).map(([hi]) => T.subs[T.habs[hi][0]][0])).forEach((f) => { if (f < 7) x[f] += n; });
+    if (type === "Character") { ch += n; chc += n * (+cost || 0); } });
+  for (let k = 0; k < 7; k++) x[k] = tot ? x[k] * 60 / tot : 0;
+  x[7] = tot ? ch * 60 / tot : 0; x[8] = ch ? chc / ch : 0;
+  return x;
+}
+function solveLin(A, b) {  // Gaussian elimination with partial pivoting
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) { let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]]; const v = M[c][c] || 1e-12;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / v; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; } }
+  return M.map((r, i) => r[n] / (r[i] || 1e-12));
+}
+function ridgeFit(X, y, w, lam = 3) {
+  const n = X.length, p = X[0].length, W = w.reduce((a, v) => a + v, 0), wn = w.map((v) => v * n / W);
+  const mu = Array.from({ length: p }, (_, k) => X.reduce((a, r, i) => a + wn[i] * r[k], 0) / n);
+  const sd = Array.from({ length: p }, (_, k) => Math.sqrt(X.reduce((a, r, i) => a + wn[i] * (r[k] - mu[k]) ** 2, 0) / n) || 1);
+  const Z = X.map((r) => [1, ...r.map((v, k) => (v - mu[k]) / sd[k])]);
+  const A = Array.from({ length: p + 1 }, (_, i) => Array.from({ length: p + 1 }, (_, j) => Z.reduce((a, z, r) => a + wn[r] * z[i] * z[j], 0) + (i === j && i > 0 ? lam : 0)));
+  const bv = Array.from({ length: p + 1 }, (_, i) => Z.reduce((a, z, r) => a + wn[r] * z[i] * y[r], 0));
+  const beta = solveLin(A, bv);
+  return { mu, sd, b0: beta[0], unit: beta.slice(1).map((v, k) => v / sd[k]) };  // unit: effect per +1 of the feature
+}
+const ridgePredict = (m, x) => m.b0 + x.reduce((a, v, k) => a + m.unit[k] * (v - m.mu[k]), 0);
+function metaModel(ek) {
+  S._mm = S._mm || {}; if (S._mm[ek]) return S._mm[ek];
+  const era = deckEraData(ek), T = S.duels.taxonomy, C = S.duels.decks.categories;
+  const decks = era.decks.map((d, i) => ({ d, i })).filter(({ d }) => d.games >= 1000 && Object.keys(d.list || {}).length).map(({ d, i }) => {
+    const entries = Object.entries(d.list).map(([cid, n]) => { const dc = S.duelsById.get(cid), c = cardForCid(cid) || {}; return { fx: dc && dc.fx, n, type: c.type, cost: c.cost }; });
+    return { d, i, x: featuresOf(entries, T), cat: (catOf(d.key, ek) || {}).cat }; });
+  const G = decks.reduce((a, r) => a + r.d.games, 0);
+  const avg = Array.from({ length: 9 }, (_, k) => decks.reduce((a, r) => a + r.x[k] * r.d.games, 0) / G);
+  const sdAll = Array.from({ length: 9 }, (_, k) => Math.sqrt(decks.reduce((a, r) => a + r.d.games * (r.x[k] - avg[k]) ** 2, 0) / G) || 1);
+  const cent = {}, presence = {}; const ct = catTotals(ek); let pres = 0;
+  C.order.forEach((c) => { const ds = decks.filter((r) => r.cat === c), g = ds.reduce((a, r) => a + r.d.games, 0);
+    cent[c] = g ? Array.from({ length: 9 }, (_, k) => ds.reduce((a, r) => a + r.x[k] * r.d.games, 0) / g) : null; presence[c] = ct.out.get(c).games; pres += presence[c]; });
+  C.order.forEach((c) => { presence[c] /= pres || 1; });
+  const models = {};
+  C.order.forEach((c) => {
+    const agg = new Map(); era.matchups.forEach(([i, j, g, w]) => { if (i === j || (catOf(era.decks[j].key, ek) || {}).cat !== c) return; const a = agg.get(i) || [0, 0]; a[0] += g; a[1] += w; agg.set(i, a); });
+    const rows = decks.filter((r) => (agg.get(r.i) || [0])[0] >= 500).map((r) => ({ x: r.x, g: agg.get(r.i)[0], wr: agg.get(r.i)[1] / agg.get(r.i)[0], d: r.d }));
+    if (rows.length < 8) return;
+    const X = rows.map((r) => r.x), y = rows.map((r) => r.wr), w = rows.map((r) => r.g);
+    let se = 0, sb = 0, W = 0;
+    rows.forEach((r, k) => { const keep = rows.map((_, q) => q !== k), m = ridgeFit(X.filter((_, q) => keep[q]), y.filter((_, q) => keep[q]), w.filter((_, q) => keep[q]));
+      const wy = y.filter((_, q) => keep[q]), ww = w.filter((_, q) => keep[q]), mean = wy.reduce((a, v, q) => a + v * ww[q], 0) / ww.reduce((a, v) => a + v, 0);
+      se += (ridgePredict(m, r.x) - r.wr) ** 2; sb += (mean - r.wr) ** 2; W++; });
+    const fit = ridgeFit(X, y, w);
+    models[c] = { fit, rmse: Math.sqrt(se / W), base: Math.sqrt(sb / W), n: rows.length };
+  });
+  return (S._mm[ek] = { decks, avg, sdAll, cent, presence, models });
+}
+/** public: the same model shape as metaModel(), built from insights.json (no Duels.ink tables) */
+function insModel() {
+  if (S._insMM) return S._insMM;
+  const I = S.ins, byId = refCards();
+  const decks = I.decks.map((r) => ({ d: { name: r.name, colors: r.colors, key: r.key }, cat: r.category, identList: r.list,
+    x: featuresOf(Object.entries(r.list).map(([id, n]) => { const c = byId.get(id) || {}; return { fx: S.fn.byIdent[id], n, type: c.type, cost: c.cost }; }), S.fn) }));
+  return (S._insMM = { decks, avg: I.model.avg, sdAll: I.model.sdAll, cent: I.categories.centroid, presence: I.categories.presence, models: I.model.models });
+}
+function renderDeckMetaRead(items) {
+  const box = $("dl-meta");
+  const priv = !!(S.duels && S.duels.taxonomy && S.dcur && (S.dcur.matchups || []).length && S.duels.decks.categories);
+  if (!priv && !S.ins) { box.hidden = true; return; }
+  box.hidden = false; $("dlm-mu-box").hidden = !priv;
+  const ek = priv ? S.duels.decks.current : null, era = priv ? deckEraData(ek) : null, T = priv ? S.duels.taxonomy : S.fn;
+  const C = { order: catOrder() }, MM = priv ? metaModel(ek) : insModel(), eraName = priv ? eraInfo(ek).name : S.ins.eraName;
+  const f1 = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }), pp = (v) => (v > 0 ? "+" : "") + (v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " p.p.";
+  const mine = featuresOf(items.map((x) => ({ fx: S.fn.byIdent[x.c.ident], n: x.n, type: x.c.type, cost: x.c.cost })), T);
+  // 1. category profile: distance to each category's average deck (standardized by the meta's spread)
+  const dists = C.order.filter((c) => MM.cent[c]).map((c) => [c, Math.sqrt(mine.reduce((a, v, k) => a + ((v - MM.cent[c][k]) / MM.sdAll[k]) ** 2, 0) / 9)]);
+  const ex = dists.map(([c, d]) => [c, Math.exp(-2 * d * d)]), exS = ex.reduce((a, [, v]) => a + v, 0);
+  const memb = new Map(ex.map(([c, v]) => [c, v / exS])), mainCat = [...memb].sort((a, b) => b[1] - a[1])[0][0];
+  const catColors = C.order.map((c) => catColor(c));
+  barChart("c-dlm-cat", C.order, [{ data: C.order.map((c) => Math.round((memb.get(c) || 0) * 1000) / 10), backgroundColor: catColors }],
+    { horizontal: true, fmt: (v) => v + "%", tooltip: (i) => [`${Math.round((memb.get(C.order[i]) || 0) * 100)}% de proximidade`, `Distância ao deck médio ${C.order[i]}: ${f1(dists.find(([c]) => c === C.order[i])[1])}`] });
+  $("dlm-prof-note").textContent = `Quanto a composição do seu deck se parece com o deck médio de cada categoria do meta (${eraName}), olhando as 7 funções, a quantidade de personagens e o custo médio deles. Mais perto de ${mainCat}. A tabela mostra onde ele se afasta da categoria: em negrito, diferenças de mais de 3 cartas (ou 0,4 de custo médio) em relação à média de ${mainCat}.`;
+  const tf = $("t-dlm-feat"); tf.replaceChildren(); const hf = tf.createTHead().insertRow();
+  ["Média por 60 cartas", "Seu deck", ...C.order].forEach((h, i) => hf.append(el("th", i ? "num" : "", h)));
+  const bf = tf.createTBody();
+  FEAT_LABELS.forEach((l, k) => { const tr = bf.insertRow(); tr.style.cursor = "default"; tr.insertCell().textContent = l;
+    const mc = numCell(tr, f1(mine[k])); const ref = MM.cent[mainCat]; if (ref && Math.abs(mine[k] - ref[k]) >= (k === 8 ? 0.4 : 3)) { mc.style.fontWeight = "700"; mc.className += mine[k] > ref[k] ? " up" : " down"; }
+    C.order.forEach((c) => numCell(tr, MM.cent[c] ? f1(MM.cent[c][k]) : "–")); });
+  // 2. estimated win rate vs each category (+ why)
+  const preds = {}; C.order.forEach((c) => { const m = MM.models[c]; if (m) preds[c] = Math.max(0.15, Math.min(0.85, ridgePredict(m.fit, mine))); });
+  const worstCat = Object.entries(preds).sort((a, b) => a[1] - b[1])[0][0];
+  if (!S.view.dlmCat || !preds[S.view.dlmCat]) S.view.dlmCat = worstCat;
+  const seg = $("dlm-cat-seg"); if (!seg.children.length) { C.order.forEach((c) => { const bt = el("button", null, "vs " + c); bt.type = "button"; bt.dataset.v = c; bt.onclick = () => { S.view.dlmCat = c; renderDeckAnalysis(); }; seg.append(bt); }); }
+  seg.querySelectorAll("button").forEach((bt) => bt.setAttribute("aria-pressed", bt.dataset.v === S.view.dlmCat));
+  const quality = (m) => { const g = 1 - m.rmse / m.base; return g >= 0.25 ? "boa" : g >= 0.12 ? "razoável" : "fraca"; };
+  const overall = Object.entries(preds).reduce((a, [c, v]) => a + v * MM.presence[c], 0) / Object.keys(preds).reduce((a, c) => a + MM.presence[c], 0);
+  $("dlm-est-note").textContent = `Estimativa pela composição: uma fórmula aprendida com os decks do meta liga as cartas por função e a curva ao win rate contra cada categoria. A margem é o erro típico da fórmula em teste com decks que ela não viu; "precisão" compara esse erro com o de chutar a média do meta. Win rate geral estimado, pesando pela presença de cada categoria: ${pct1(overall)}.`;
+  const tc = $("t-dlm-cat"); tc.replaceChildren(); const hc = tc.createTHead().insertRow();
+  ["Contra", "Presença", "Deck médio do meta", "Seu deck", "Margem", "Precisão"].forEach((h, i) => hc.append(el("th", i ? "num" : "", h)));
+  const bc = tc.createTBody();
+  C.order.forEach((c) => { const m = MM.models[c], tr = bc.insertRow(); tr.tabIndex = 0; if (c === S.view.dlmCat) tr.style.background = "var(--accent-wash)";
+    tr.onclick = () => { S.view.dlmCat = c; renderDeckAnalysis(); }; catCell(tr, { cat: c }); numCell(tr, pct1(MM.presence[c]));
+    if (!m) { [1, 2, 3, 4].forEach(() => numCell(tr, "–")); return; }
+    numCell(tr, pct1(m.fit.b0)); const v = numCell(tr, pct1(preds[c])); v.className += wrClass(preds[c]); v.style.fontWeight = "700";
+    numCell(tr, "± " + f1(m.rmse * 100) + " p.p."); const q = numCell(tr, quality(m)); q.title = `Erro da fórmula ${f1(m.rmse * 100)} p.p. contra ${f1(m.base * 100)} p.p. chutando a média (${m.n} decks)`; });
+  const cm = MM.models[S.view.dlmCat];
+  if (cm) {
+    const contrib = FEAT_LABELS.map((l, k) => ({ label: l, k, v: cm.fit.unit[k] * (mine[k] - cm.fit.mu[k]), unit: cm.fit.unit[k], d: mine[k] - cm.fit.mu[k] })).filter((f) => Math.abs(f.v) >= 0.001);
+    $("dlm-why-title").textContent = `Por que ${pct1(preds[S.view.dlmCat])} contra ${S.view.dlmCat}: parte de ${pct1(cm.fit.b0)} (deck médio)`;
+    divergingChart("c-dlm-why", "dlm-why-wrap", contrib.map((f) => ({ ...f, val: f.v * 100 })), (f) => f.val, css("--good") || "#1baf7a", css("--critical"),
+      (f) => [`${f.d >= 0 ? "+" : ""}${f1(f.d)} ${FEAT_UNIT(f.k)}${Math.abs(f.d) === 1 || f.k === 8 ? "" : "s"} em relação ao deck médio do meta`, `× ${pp(f.unit)} por ${FEAT_UNIT(f.k)} = ${pp(f.v)}`]);
+  }
+  // 3. per-deck matchups: blend of the nearest decks' real results and the formula for the opponent's category
+  const cidIdent = new Map(); S.cards.forEach((c) => { const d = duelsOf(c); if (d) cidIdent.set(d.id, c.ident); });
+  const byIdent = (list) => { const o = {}; Object.entries(list).forEach(([cid, cp]) => { const k = cidIdent.get(cid) || cid; o[k] = (o[k] || 0) + cp; }); return o; };
+  const listOf = (r) => r.identList || byIdent(r.d.list);
+  const mineI = {}; items.forEach((x) => { mineI[x.c.ident] = (mineI[x.c.ident] || 0) + x.n; });
+  const cos = (a, b) => { let ab = 0, aa = 0, bb = 0; new Set([...Object.keys(a), ...Object.keys(b)]).forEach((k) => { const x = a[k] || 0, y = b[k] || 0; ab += x * y; aa += x * x; bb += y * y; }); return aa && bb ? ab / Math.sqrt(aa * bb) : 0; };
+  const near = MM.decks.map((r) => ({ ...r, sc: cos(mineI, listOf(r)), sp: 1 / (1 + Math.sqrt(mine.reduce((a, v, k) => a + ((v - r.x[k]) / MM.sdAll[k]) ** 2, 0) / 9)) }))
+    .map((r) => ({ ...r, s: 0.6 * r.sc + 0.4 * r.sp })).sort((a, b) => b.s - a.s);
+  const K = near.slice(0, 5).map((n) => ({ ...n, w: n.s ** 4 })), top = near[0];
+  const alpha = Math.max(0, Math.min(1, (top.sc - 0.3) / 0.5));  // weight of the neighbours' real results
+  if (priv) {
+  const muOf = new Map(); era.matchups.forEach(([i, j, g, w]) => { if (i !== j) muOf.set(i + "|" + j, [g, w]); });
+  const est = era.decks.map((o, j) => { let num = 0, den = 0, n = 0; K.forEach((k) => { const m = muOf.get(k.i + "|" + j); if (m && m[0] >= 50) { num += k.w * m[1] / m[0] * m[0]; den += k.w * m[0]; n += m[0]; } });
+    const oc = (catOf(o.key, ek) || {}).cat, model = MM.models[oc] ? preds[oc] : null; if (model == null && !den) return null;
+    const nb = den ? num / den : model, a = den && model != null ? alpha : den ? 1 : 0;
+    const nbErr = den ? Math.max(0.02, 1.96 * Math.sqrt(nb * (1 - nb) / Math.max(n, 1))) : 0, mErr = model != null ? MM.models[oc].rmse : 0;
+    return { o, oc, wr: a * nb + (1 - a) * model, err: a * nbErr + (1 - a) * mErr, n }; }).filter((e) => e && e.o.games >= 2000 && Object.keys(e.o.list || {}).length);
+  const muTable = (id, rows) => { const t = $(id); t.replaceChildren(); const h = t.createTHead().insertRow(); ["Oponente", "Win rate estimado", "Margem"].forEach((x, i) => h.append(el("th", i ? "num" : "", x)));
+    const b = t.createTBody(); rows.forEach((e) => { const tr = b.insertRow(); tr.style.cursor = "default"; const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(e.o.colors), document.createTextNode(e.o.name)); if (e.oc) nc.append(el("small", null, e.oc));
+      const w = numCell(tr, pct1(e.wr)); w.className += wrClass(e.wr); numCell(tr, "± " + f1(e.err * 100) + " p.p."); }); };
+  const sorted = [...est].sort((a, b) => b.wr - a.wr);
+  muTable("t-dlm-best", sorted.slice(0, 6)); muTable("t-dlm-worst", sorted.slice(-6).reverse());
+  $("dlm-best-note").textContent = $("dlm-worst-note").textContent = `Mistura dos resultados reais dos decks mais parecidos com a fórmula da categoria do oponente. Como a sua lista divide ${Math.round(top.sc * 100)}% das cartas com o deck mais parecido, ${Math.round(alpha * 100)}% do peso vai para os resultados reais e ${Math.round((1 - alpha) * 100)}% para a fórmula. Decks do meta com pelo menos 2.000 partidas.`;
+  }
+  // 4. swap simulator (linear model: swapping 4 cards of function B for 4 of function A changes the estimate by 4 × (effect A − effect B))
+  const cats = C.order.filter((c) => MM.models[c]), target = S.view.dlmCat, SW = 4;
+  const counts = new Array(7).fill(0); items.forEach((x) => new Set((S.fn.byIdent[x.c.ident] || []).map(([hi]) => T.subs[T.habs[hi][0]][0])).forEach((f) => { if (f < 7) counts[f] += x.n; }));
+  const swaps = [];
+  for (let a = 0; a < 7; a++) for (let b = 0; b < 7; b++) { if (a === b || counts[b] < SW) continue;
+    const d = {}; cats.forEach((c) => { d[c] = SW * (MM.models[c].fit.unit[a] - MM.models[c].fit.unit[b]); }); swaps.push({ a, b, d, label: `+${SW} ${FEAT_LABELS[a]} / −${SW} ${FEAT_LABELS[b]}` }); }
+  { const d = {}; cats.forEach((c) => { d[c] = -0.5 * MM.models[c].fit.unit[8]; }); swaps.push({ curve: true, d, label: "Baixar a curva: −0,5 no custo médio dos personagens" }); }
+  swaps.forEach((s2) => { s2.all = cats.reduce((a, c) => a + s2.d[c] * MM.presence[c], 0) / cats.reduce((a, c) => a + MM.presence[c], 0); });
+  const best = swaps.filter((s2) => s2.d[target] > 0.001).sort((x, y) => y.d[target] - x.d[target]).slice(0, 8);
+  $("dlm-sim-note").textContent = `Trocas de ${SW} cartas que mais melhoram a estimativa contra ${target} (troque a categoria acima). As colunas mostram o efeito em cada categoria e no win rate geral: uma troca que ajuda contra uma categoria pode piorar contra outra. Use como direção, não como número exato: cada estimativa tem a margem da tabela acima. Clique numa troca para ver cartas sugeridas.`;
+  const ts = $("t-dlm-sim"); ts.replaceChildren(); const hs = ts.createTHead().insertRow(); ["Troca", ...cats.map((c) => "vs " + c), "Geral"].forEach((h, i) => hs.append(el("th", i ? "num" : "", h)));
+  const bs = ts.createTBody();
+  best.forEach((s2) => { const tr = bs.insertRow(); tr.tabIndex = 0; tr.onclick = () => { S.dlmSwap = s2.label; renderDeckAnalysis(); };
+    if (S.dlmSwap === s2.label) tr.style.background = "var(--accent-wash)";
+    tr.insertCell().textContent = s2.label; cats.forEach((c) => { const td = numCell(tr, pp(s2.d[c])); if (Math.abs(s2.d[c]) >= 0.001) td.className += s2.d[c] > 0 ? " up" : " down"; if (c === target) td.style.fontWeight = "700"; });
+    const g = numCell(tr, pp(s2.all)); g.className += s2.all > 0 ? " up" : " down"; });
+  if (!best.length) bs.insertRow().insertCell().textContent = "Nenhuma troca simples melhora a estimativa contra essa categoria.";
+  // 5. card suggestions for the chosen swap
+  const sw = best.find((s2) => s2.label === S.dlmSwap), sug = $("dlm-sug");
+  if (!sw || sw.curve) { sug.hidden = !sw; if (sw) { $("dlm-sug-title").textContent = "Baixar a curva"; $("dlm-add-note").textContent = "Troque personagens de custo 5 ou mais por personagens de custo 2 ou 3 com funções parecidas."; $("t-dlm-add").replaceChildren(); $("dlm-cut-note").textContent = ""; $("t-dlm-cut").replaceChildren(); } return; }
+  sug.hidden = false; $("dlm-sug-title").textContent = `Sugestões para: ${sw.label}`;
+  const myInks = new Set(items.flatMap((x) => inkList(x.c))), have = new Set(items.map((x) => x.c.ident));
+  const funcOf = (ident) => new Set((S.fn.byIdent[ident] || []).map(([hi]) => T.subs[T.habs[hi][0]][0]));
+  const habsOf = (ident, f) => [...new Set((S.fn.byIdent[ident] || []).filter(([hi]) => T.subs[T.habs[hi][0]][0] === f).map(([hi]) => T.habs[hi][1]))].join(", ");
+  const use = new Map(), nbUse = new Map();
+  if (priv) { const GG = MM.decks.reduce((a, r) => a + r.d.games, 0); MM.decks.forEach((r) => Object.entries(byIdent(r.d.list)).forEach(([id, cp]) => use.set(id, (use.get(id) || 0) + cp * r.d.games / GG))); }
+  else S.ins.popular.forEach((id, i) => use.set(id, 1 - i / S.ins.popular.length));  // public: popularity order only
+  K.forEach((k) => Object.entries(listOf(k)).forEach(([id, cp]) => nbUse.set(id, (nbUse.get(id) || 0) + cp * k.w)));
+  const useTxt = (u) => priv ? u.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : (u > 0.66 ? "alta" : u > 0.33 ? "média" : u > 0 ? "baixa" : "–");
+  const pool = new Map(); S.cards.forEach((c) => { if (!c.core || have.has(c.ident) || !inkList(c).length || !inkList(c).every((i) => myInks.has(i)) || !funcOf(c.ident).has(sw.a)) return;
+    const p = pool.get(c.ident); if (!p || (c.printing === "Normal" && p.printing !== "Normal")) pool.set(c.ident, c); });
+  const cand = [...pool.values()].map((c) => ({ c, u: use.get(c.ident) || 0, nb: nbUse.get(c.ident) || 0 })).sort((x, y) => (y.nb * 3 + y.u) - (x.nb * 3 + x.u) || (x.c.price || 99) - (y.c.price || 99)).slice(0, 8);
+  $("dlm-add-note").textContent = `Cartas de ${FEAT_LABELS[sw.a]} nas suas tintas, legais no Core e fora da sua lista, ordenadas pelo uso nos decks parecidos com o seu e no meta.`;
+  const ta = $("t-dlm-add"); ta.replaceChildren(); const ha = ta.createTHead().insertRow(); ["Carta", "Custo", "Habilidade", priv ? "Cópias no meta" : "Popularidade no meta", "Preço"].forEach((h, i) => ha.append(el("th", [1, 3, 4].includes(i) ? "num" : "", h)));
+  const ba = ta.createTBody(); cand.forEach((x) => { const tr = ba.insertRow(); tr.tabIndex = 0; tr.onclick = () => openDetail(x.c); nameCell(tr, x.c); numCell(tr, x.c.cost || "–");
+    const hc2 = tr.insertCell(); hc2.className = "small"; hc2.textContent = habsOf(x.c.ident, sw.a); numCell(tr, useTxt(x.u)); numCell(tr, usd(x.c.price)); });
+  const cut = items.filter((x) => funcOf(x.c.ident).has(sw.b)).map((x) => ({ x, nf: [...funcOf(x.c.ident)].filter((f) => f < 7).length, u: use.get(x.c.ident) || 0 })).sort((p, q) => p.nf - q.nf || p.u - q.u).slice(0, 6);
+  $("dlm-cut-note").textContent = `Cartas de ${FEAT_LABELS[sw.b]} na sua lista que mais fazem só isso (menos funções) e são menos usadas no meta: candidatas a sair.`;
+  const tcut = $("t-dlm-cut"); tcut.replaceChildren(); const hcu = tcut.createTHead().insertRow(); ["Cópias", "Carta", "Outras funções", priv ? "Cópias no meta" : "Popularidade no meta"].forEach((h, i) => hcu.append(el("th", [0, 3].includes(i) ? "num" : "", h)));
+  const bcu = tcut.createTBody(); cut.forEach(({ x, u }) => { const tr = bcu.insertRow(); tr.tabIndex = 0; tr.onclick = () => openDetail(x.c); numCell(tr, x.n); nameCell(tr, x.c);
+    const oc = tr.insertCell(); oc.className = "small"; oc.textContent = [...funcOf(x.c.ident)].filter((f) => f !== sw.b && f < 7).map((f) => T.funcs[f]).join(", ") || "—"; numCell(tr, useTxt(u)); });
+  // 6. nearest decks
+  $("dlm-note").textContent = priv ? `Decks do meta (${eraName}, Duels.ink) mais parecidos com a sua lista: 60% pelas cartas em comum, 40% pelas funções e curva. Eles alimentam a parte "resultados reais" dos confrontos por deck.`
+    : `Decks de referência do meta (${eraName}) mais parecidos com a sua lista: 60% pelas cartas em comum, 40% pelas funções e curva. Veja as fichas na aba Meta.`;
+  const tn = $("t-dlm-near"); tn.replaceChildren(); const hn = tn.createTHead().insertRow(); ["Deck", "Categoria", "Cartas em comum", "Funções parecidas"].forEach((h, i) => hn.append(el("th", i > 1 ? "num" : "", h)));
+  const bn = tn.createTBody(); K.forEach((n) => { const tr = bn.insertRow(); tr.style.cursor = "default"; const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(n.d.colors), document.createTextNode(n.d.name));
+    catCell(tr, n.cat ? { cat: n.cat } : catOf(n.d.key, ek)); numCell(tr, Math.round(n.sc * 100) + "%"); numCell(tr, Math.round(n.sp * 100) + "%"); });
+}
+
 /* ---------- deck categories (Aggro / Tempo / Midrange / Controle) ---------- */
 const CAT_DESC = {
   Aggro: "Curva muito baixa, quase só personagens; a maior parte das vitórias sai até o turno 7.",
@@ -904,7 +1266,8 @@ function catOf(key, eraKey) {
   const r = C.byKey[key]; if (r) return r;
   const c = (C.byEra[eraKey] || {})[key]; return c ? { cat: c } : null;
 }
-const catColor = (c) => { const i = S.duels.decks.categories.order.indexOf(c); return seriesColors()[i < 0 ? 5 : i]; };
+const catOrder = () => (S.duels && S.duels.decks.categories ? S.duels.decks.categories.order : S.ins ? S.ins.categories.order : []);
+const catColor = (c) => { const i = catOrder().indexOf(c); return seriesColors()[i < 0 ? 5 : i]; };
 const n1 = (v) => v == null ? "–" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 function catProfile(r) {
   const f = r && r.f; if (!f) return "";
@@ -1241,12 +1604,12 @@ function baseOpts() {
     scales: { x: { grid: { color: grid, drawTicks: false }, border: { display: false } }, y: { grid: { color: grid, drawTicks: false }, border: { display: false } } },
   };
 }
-function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip, fmt, onClick }) {
+function barChart(id, labels, datasets, { horizontal = false, log = false, stacked = false, legend = false, tooltip, fmt, onClick, labelMax = 24 }) {
   const o = baseOpts(), vAxis = horizontal ? "x" : "y", cAxis = horizontal ? "y" : "x";
   o.indexAxis = horizontal ? "y" : "x";
   o.scales[cAxis].grid.display = false;
   o.scales[cAxis].stacked = stacked; o.scales[vAxis].stacked = stacked;
-  if (horizontal) o.scales[cAxis].ticks = { autoSkip: false, callback: (v) => { const l = labels[v] || ""; return l.length > 24 ? l.slice(0, 22) + "…" : l; } };
+  if (horizontal) o.scales[cAxis].ticks = { autoSkip: false, callback: (v) => { const l = labels[v] || ""; return l.length > labelMax ? l.slice(0, labelMax - 2) + "…" : l; } };
   o.scales[vAxis].type = log ? "logarithmic" : "linear";
   o.scales[vAxis].ticks = { callback: (v) => (log && ![0.1, 1, 10, 100, 1000, 10000, 100000].includes(v)) ? "" : fmt ? fmt(v) : "$" + Number(v).toLocaleString("pt-BR") };
   if (log) o.scales[vAxis].title = { display: true, text: "escala logarítmica" };
