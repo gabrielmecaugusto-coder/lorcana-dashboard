@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-10T20:05:49+0000",
+"updated": "2026-11-11T20:05:27+0000",
 "groups": [
 {
 "groupId": 17690,
@@ -75114,6 +75114,16 @@
 "rarity": "Promo",
 "number": "1",
 "text": "Rush (This character can challenge the turn they're played.)\r\n[Dynamic Maneuver] Whenever this character challenges, if he's at a location, he takes no damage from the challenge.",
+"franchise": "Beauty and the Beast",
+"cost": "2",
+"version": "Snowfield Troublemaker",
+"inkable": "Yes",
+"ink": "Ruby",
+"cardType": "Character",
+"classification": "Storyborn;Hero;Prince",
+"strength": "3",
+"willpower": "1",
+"lore": "1",
 "isSingle": true
 }
 ]
