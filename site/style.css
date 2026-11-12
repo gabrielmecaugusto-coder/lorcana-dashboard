@@ -189,3 +189,4 @@ details.cx-fn > summary small { font-weight: 400; color: var(--text-secondary); 
 ul.plain { list-style: none; padding-left: 0; margin: 4px 0; }
 ul.plain li { margin: 3px 0; display: flex; align-items: center; gap: 6px; }
 .grid2.tight { gap: 10px; }
+.section-h { margin: 22px 0 6px; font-size: 18px; }
