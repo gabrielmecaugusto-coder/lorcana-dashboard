@@ -62,7 +62,7 @@ async function init() {
     document.querySelectorAll("[data-duels]").forEach((e) => e.hidden = false);
   } catch (e) { S.duels = null; }
   $("updated").textContent = `Preços de ${fmtDate(S.latest)} · ${S.cards.length.toLocaleString("pt-BR")} cartas/impressões · histórico desde ${fmtDate(S.first)}`;
-  buildFilters();
+  buildFilters(); initCardPreview();
   readHash();
   render();
 }
@@ -549,7 +549,21 @@ function moverTable(tbl, items) {
   });
 }
 
-function imgCell(tr, c) { const td = tr.insertCell(); if (c.img) { const im = new Image(); im.loading = "lazy"; im.onerror = () => { im.style.visibility = "hidden"; }; im.src = c.img; im.alt = ""; td.append(im); } }
+function imgCell(tr, c) { const td = tr.insertCell(); if (c.img) { const im = new Image(); im.loading = "lazy"; im.onerror = () => { im.style.visibility = "hidden"; }; im.src = c.img; im.alt = ""; im.className = "thumb"; im.dataset.name = c.name; td.append(im); } }
+/** Hovering a card thumbnail in any list shows the card large enough to read it. */
+function initCardPreview() {
+  if (!matchMedia("(hover: hover)").matches) return;
+  const box = el("div", "card-preview"), big = new Image(); big.alt = ""; box.append(big); box.hidden = true; document.body.append(box);
+  let cur = null;
+  const place = (e) => { const W = 340, H = W * 1.4, pad = 16; let x = e.clientX + 24, y = e.clientY - H / 2;
+    if (x + W + pad > innerWidth) x = e.clientX - W - 24; y = Math.max(pad, Math.min(y, innerHeight - H - pad)); box.style.left = x + "px"; box.style.top = y + "px"; };
+  document.addEventListener("mouseover", (e) => { const im = e.target.closest && e.target.closest("img.thumb"); if (!im || im === cur) return;
+    cur = im; big.onerror = () => { if (!big.src.includes("_400w")) big.src = im.src.replace(/_\d+w\.jpg$/, "_400w.jpg"); };
+    big.src = im.src.replace(/_\d+w\.jpg$/, "_in_1000x1000.jpg"); big.alt = im.dataset.name || ""; box.hidden = false; place(e); });
+  document.addEventListener("mousemove", (e) => { if (cur) place(e); });
+  document.addEventListener("mouseout", (e) => { if (cur && e.target === cur && !(e.relatedTarget && e.relatedTarget === cur)) { cur = null; box.hidden = true; } });
+  addEventListener("scroll", () => { if (cur) { cur = null; box.hidden = true; } }, { passive: true });
+}
 function nameCell(tr, c) {
   const td = tr.insertCell(); td.className = "name"; td.append(document.createTextNode(c.name));
   const sm = el("small", null, [S.setsById.get(c.set)?.name, c.num, c.rarity, c.ink && c.ink.replace(";", "/"), c.printing !== "Normal" ? c.printing : ""].filter(Boolean).join(" · "));
@@ -1169,12 +1183,12 @@ function renderInsightSheet() {
   const parts = compParts(T, items.map((x) => ({ fx: S.fn.byIdent[x.c.ident], w: x.n, name: x.c.name })), "func", total);
   if (S.insFn != null && !parts.some((p) => p.k === S.insFn)) S.insFn = null;
   const drawList = () => {
-    const hl = S.insFn, t = $("t-in-sh"); t.replaceChildren(); const h = t.createTHead().insertRow(); [["Cópias", "num"], ["Carta", ""], ["Custo", "num"], ["Funções", ""], ["Preço", "num"]].forEach(([x, cl]) => h.append(el("th", cl, x)));
+    const hl = S.insFn, t = $("t-in-sh"); t.replaceChildren(); const h = t.createTHead().insertRow(); [["Cópias", "num"], ["", ""], ["Carta", ""], ["Custo", "num"], ["Funções", ""], ["Preço", "num"]].forEach(([x, cl]) => h.append(el("th", cl, x)));
     const b = t.createTBody();
     items.slice().sort((a, b2) => (hl != null ? (fnsOf(b2).has(hl) - fnsOf(a).has(hl)) : 0) || (+a.c.cost || 0) - (+b2.c.cost || 0) || a.c.name.localeCompare(b2.c.name)).forEach((x) => {
       const tr = b.insertRow(); tr.tabIndex = 0; if (x.c.id) tr.onclick = () => openDetail(x.c);
       if (hl != null) tr.className = fnsOf(x).has(hl) ? "hl" : "dim";
-      numCell(tr, x.n); if (x.c.id) nameCell(tr, x.c); else tr.insertCell().textContent = x.c.name; numCell(tr, x.c.cost || "–");
+      numCell(tr, x.n); imgCell(tr, x.c); if (x.c.id) nameCell(tr, x.c); else tr.insertCell().textContent = x.c.name; numCell(tr, x.c.cost || "–");
       const fc = tr.insertCell(); fc.className = "small"; fc.textContent = [...fnsOf(x)].map((k) => T.funcs[k]).join(", ") || "–";
       numCell(tr, usd(x.c.price)); });
     const cap = $("in-sh-hl"); cap.replaceChildren();
