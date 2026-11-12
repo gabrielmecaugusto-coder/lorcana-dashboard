@@ -1536,6 +1536,12 @@ function renderDeckMetaRead(items) {
   if (!best.length) bs.insertRow().insertCell().textContent = "Nenhuma troca simples melhora a estimativa contra essa categoria.";
   // 5. card suggestions for the chosen swap
   const sw = best.find((s2) => s2.label === S.dlmSwap), sug = $("dlm-sug");
+  // 6. nearest decks (drawn before the suggestions, which can return early)
+  $("dlm-note").textContent = priv ? `Decks do meta (${eraName}, Duels.ink) mais parecidos com a sua lista: 60% pelas cartas em comum, 40% pelas funções e curva. Eles alimentam a parte "resultados reais" dos confrontos por deck.`
+    : `Decks de referência do meta (${eraName}) mais parecidos com a sua lista: 60% pelas cartas em comum, 40% pelas funções e curva. Veja as fichas na aba Meta.`;
+  const tn = $("t-dlm-near"); tn.replaceChildren(); const hn = tn.createTHead().insertRow(); ["Deck", "Categoria", "Cartas em comum", "Funções parecidas"].forEach((h, i) => hn.append(el("th", i > 1 ? "num" : "", h)));
+  const bn = tn.createTBody(); K.forEach((n) => { const tr = bn.insertRow(); tr.style.cursor = "default"; const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(n.d.colors), document.createTextNode(n.d.name));
+    catCell(tr, n.cat ? { cat: n.cat } : catOf(n.d.key, ek)); numCell(tr, Math.round(n.sc * 100) + "%"); numCell(tr, Math.round(n.sp * 100) + "%"); });
   if (!sw || sw.curve) { sug.hidden = !sw; if (sw) { $("dlm-sug-title").textContent = "Baixar a curva"; $("dlm-add-note").textContent = "Troque personagens de custo 5 ou mais por personagens de custo 2 ou 3 com funções parecidas."; $("t-dlm-add").replaceChildren(); $("dlm-cut-note").textContent = ""; $("t-dlm-cut").replaceChildren(); } return; }
   sug.hidden = false; $("dlm-sug-title").textContent = `Sugestões para: ${sw.label}`;
   const myInks = new Set(items.flatMap((x) => inkList(x.c))), have = new Set(items.map((x) => x.c.ident));
@@ -1558,12 +1564,6 @@ function renderDeckMetaRead(items) {
   const tcut = $("t-dlm-cut"); tcut.replaceChildren(); const hcu = tcut.createTHead().insertRow(); ["Cópias", "Carta", "Outras funções", priv ? "Cópias no meta" : "Popularidade no meta"].forEach((h, i) => hcu.append(el("th", [0, 3].includes(i) ? "num" : "", h)));
   const bcu = tcut.createTBody(); cut.forEach(({ x, u }) => { const tr = bcu.insertRow(); tr.tabIndex = 0; tr.onclick = () => openDetail(x.c); numCell(tr, x.n); nameCell(tr, x.c);
     const oc = tr.insertCell(); oc.className = "small"; oc.textContent = [...funcOf(x.c.ident)].filter((f) => f !== sw.b && f < 7).map((f) => T.funcs[f]).join(", ") || "—"; numCell(tr, useTxt(u)); });
-  // 6. nearest decks
-  $("dlm-note").textContent = priv ? `Decks do meta (${eraName}, Duels.ink) mais parecidos com a sua lista: 60% pelas cartas em comum, 40% pelas funções e curva. Eles alimentam a parte "resultados reais" dos confrontos por deck.`
-    : `Decks de referência do meta (${eraName}) mais parecidos com a sua lista: 60% pelas cartas em comum, 40% pelas funções e curva. Veja as fichas na aba Meta.`;
-  const tn = $("t-dlm-near"); tn.replaceChildren(); const hn = tn.createTHead().insertRow(); ["Deck", "Categoria", "Cartas em comum", "Funções parecidas"].forEach((h, i) => hn.append(el("th", i > 1 ? "num" : "", h)));
-  const bn = tn.createTBody(); K.forEach((n) => { const tr = bn.insertRow(); tr.style.cursor = "default"; const nc = tr.insertCell(); nc.className = "name"; nc.append(inkDots(n.d.colors), document.createTextNode(n.d.name));
-    catCell(tr, n.cat ? { cat: n.cat } : catOf(n.d.key, ek)); numCell(tr, Math.round(n.sc * 100) + "%"); numCell(tr, Math.round(n.sp * 100) + "%"); });
 }
 
 /* ---------- deck categories (Aggro / Tempo / Midrange / Controle) ---------- */
