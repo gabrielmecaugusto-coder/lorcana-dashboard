@@ -454,13 +454,13 @@ async function renderEvolution() {
   lineChart("c-evo", base.dates, vals, avg ? "Preço médio" : "Valor total", { counts: [...cnt] });
   renderEvoMeta();
 }
-/** Under the price chart, on the same time axis: share of the meta played with the filtered inks (a second chart, not a second y-axis). */
+/** Share of the meta played with the filtered inks, drawn on the price chart against a second axis on the right (asked for by Gabriel). */
 function renderEvoMeta() {
-  const box = $("evo-meta-box"), hint = $("evo-meta-hint"), CS = S.ins && S.ins.colorShare, inks = [...S.filter.inks];
+  const box = $("evo-meta-box"), hint = $("evo-meta-hint"), CS = S.ins && S.ins.colorShare, inks = [...S.filter.inks], evo = S.charts["c-evo"];
   hint.hidden = !CS || inks.length > 0;
-  if (!CS || !inks.length) { box.hidden = true; return; }
-  $("evo-zoom").onchange = (e) => { S.view.evoZoom = e.target.checked; renderEvolution(); };
+  if (!CS || !inks.length || !evo) { box.hidden = true; return; }
   box.hidden = false;
+  $("evo-zoom").onchange = (e) => { S.view.evoZoom = e.target.checked; renderEvolution(); };
   const ts = (d) => Date.parse(d + "T12:00:00Z"), first = CS.weeks.length ? ts(CS.weeks[0].week) : Infinity;
   const pts = (ink) => {
     const out = [];
@@ -468,25 +468,24 @@ function renderEvoMeta() {
     CS.weeks.forEach((w) => out.push({ x: ts(w.week), y: w.share[ink] * 100, lab: `semana de ${fmtDate(w.week)}` }));
     return out;
   };
-  const evo = S.charts["c-evo"];
-  // zoom both charts to the period that has meta data (on by default), so the two lines can be compared
+  // zoom to the period that has meta data (on by default)
   const zoom = S.view.evoZoom !== false, z0 = Math.min(...CS.eras.map((e) => ts(e.start))) - 7 * 864e5;
   $("evo-zoom").checked = zoom;
-  if (evo) { const xo = evo.options.scales.x; if (xo._min0 === undefined) { xo._min0 = xo.min; } xo.min = zoom ? Math.max(z0, xo._min0) : xo._min0; evo.update("none"); }
-  const xs = evo && evo.scales.x;
-  const o = baseOpts();
-  o.interaction = { mode: "nearest", axis: "x", intersect: false };
-  o.layout = { padding: { top: 18 } };
-  o.scales.x = { type: "linear", min: xs ? xs.min : undefined, max: xs ? xs.max : undefined, grid: { display: false }, border: { display: false },
-    ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (v) => { const d = new Date(v); return String(d.getUTCMonth() + 1).padStart(2, "0") + "/" + String(d.getUTCFullYear()).slice(2); } } };
-  o.scales.y.min = 0; o.scales.y.ticks = { maxTicksLimit: 4, callback: (v) => v + "%" }; o.scales.y.afterFit = (sc) => { if (evo) sc.width = evo.scales.y.width; };
-  if (inks.length > 1) { o.plugins.legend = { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, color: css("--text-secondary") } }; o.plugins.tooltip.displayColors = true; }
-  o.plugins.tooltip.callbacks = { title: (it) => it[0].raw.lab, label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das partidas` };
-  o.plugins.evlines = { items: eventItems() };
-  const datasets = inks.map((ink) => ({ label: ink, data: pts(ink), parsing: false, borderColor: INK_COLOR[ink], backgroundColor: INK_COLOR[ink], borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0, spanGaps: false }));
-  upsert("c-evo-meta", { type: "line", data: { datasets }, options: o, plugins: [crosshair, evlines] });
-  $("evo-meta-title").textContent = `Participação no meta: ${inks.join(", ")}`;
-  $("evo-meta-note").textContent = `Fatia das partidas do ranqueado online (Duels.ink) jogadas com um deck que usa ${inks.length > 1 ? "cada tinta" : "a tinta"}; um deck de duas cores conta para as duas. Média de cada expansão desde a Set 11 e semanal desde ${fmtDate(CS.weeks[0] ? CS.weeks[0].week : "")}. O eixo de tempo é o mesmo do gráfico de preço acima, para comparar os dois.`;
+  const o = evo.options, xo = o.scales.x;
+  if (zoom) xo.min = Math.max(z0, xo.min);
+  o.scales.y.title = { display: true, text: evo.data.datasets[0].label + " (US$)" };
+  o.scales.y2 = { position: "right", min: 0, grid: { drawOnChartArea: false }, border: { display: false },
+    ticks: { maxTicksLimit: 6, callback: (v) => v + "%" }, title: { display: true, text: "% das partidas no meta" } };
+  o.plugins.legend = { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, color: css("--text-secondary") } };
+  o.plugins.tooltip.displayColors = true;
+  const cb = o.plugins.tooltip.callbacks, t0 = cb.title, l0 = cb.label, a0 = cb.afterLabel;
+  cb.title = (it) => it[0].raw && it[0].raw.lab ? it[0].raw.lab : t0(it);
+  cb.label = (ctx) => ctx.dataset.yAxisID === "y2" ? `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das partidas` : l0(ctx);
+  cb.afterLabel = (ctx) => ctx.dataset.yAxisID === "y2" ? "" : a0(ctx);
+  inks.forEach((ink) => evo.data.datasets.push({ label: `${ink} no meta (eixo da direita)`, data: pts(ink), parsing: false, yAxisID: "y2", borderColor: INK_COLOR[ink], backgroundColor: INK_COLOR[ink],
+    borderWidth: 2, borderDash: [6, 3], pointRadius: 0, pointHoverRadius: 4, tension: 0 }));
+  evo.update("none");
+  $("evo-meta-note").textContent = `Linha tracejada (eixo da direita): fatia das partidas do ranqueado online (Duels.ink) jogadas com um deck que usa ${inks.length > 1 ? "cada tinta" : "a tinta"}; um deck de duas cores conta para as duas. Média de cada expansão desde a Set 11 e semanal desde ${fmtDate(CS.weeks[0] ? CS.weeks[0].week : "")}. Os dois eixos têm escalas diferentes: compare o movimento das linhas, não a altura de uma contra a outra.`;
 }
 
 function renderMovers(rows) {
