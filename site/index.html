@@ -245,7 +245,12 @@
     <article class="card">
       <h2>Categorias de deck</h2>
       <p class="muted small" id="in-cat-note"></p>
-      <div class="kpis small-kpis" id="in-cat-kpis"></div>
+      <div class="grid2">
+        <div><h3>Presença no meta</h3><div class="chart" style="height:280px"><canvas id="c-in-pie"></canvas></div>
+          <p class="muted small">Passe o mouse para ver a descrição; clique numa categoria para destacar os decks dela mais abaixo.</p></div>
+        <div><h3>Win rate entre categorias</h3><div class="table-wrap"><table class="t" id="t-in-mx"></table></div>
+          <p class="muted small">Vitórias da categoria da linha contra a da coluna, somando todas as partidas do ranqueado entre decks das duas categorias. Verde: 53% ou mais; vermelho: 47% ou menos.</p></div>
+      </div>
       <h3 style="margin-top:14px">Composição média de cada categoria (cartas por 60)</h3>
       <div class="table-wrap"><table class="t" id="t-in-cent"></table></div>
     </article>
@@ -259,9 +264,10 @@
           <div class="chart" id="in-beat-wrap" style="height:300px"><canvas id="c-in-beat"></canvas></div></div>
       </div>
     </article>
-    <article class="card">
+    <article class="card" id="in-decks-card">
       <h2>Decks do meta</h2>
       <p class="muted small" id="in-decks-note"></p>
+      <p class="small" id="in-decks-hl"></p>
       <div id="in-decks" class="deck-tiles"></div>
     </article>
     <article class="card" id="in-sheet" hidden>
@@ -270,12 +276,14 @@
       <div class="grid2">
         <div>
           <h3>Contra cada categoria</h3><div id="in-sh-vs" class="chips-row"></div>
-          <h3 style="margin-top:14px">Sofre contra decks com</h3><ul id="in-sh-hard" class="small"></ul>
+          <div class="grid2 tight"><div><h3 style="margin-top:14px">Melhores confrontos</h3><ul id="in-sh-best" class="small plain"></ul></div>
+            <div><h3 style="margin-top:14px">Piores confrontos</h3><ul id="in-sh-worst" class="small plain"></ul></div></div>
+          <h3 style="margin-top:6px">Sofre contra decks com</h3><ul id="in-sh-hard" class="small"></ul>
           <h3>Vai bem contra decks com</h3><ul id="in-sh-easy" class="small"></ul>
           <h3>Composição por função</h3>
           <div class="chart" style="height:280px"><canvas id="c-in-sh"></canvas></div>
         </div>
-        <div><h3>Lista</h3><div class="table-wrap"><table class="t" id="t-in-sh"></table></div></div>
+        <div><h3>Lista</h3><p class="muted small" id="in-sh-hl"></p><div class="table-wrap"><table class="t" id="t-in-sh"></table></div></div>
       </div>
       <div class="table-wrap" style="margin-top:10px"><table class="t" id="t-in-sh-comp"></table></div>
     </article>

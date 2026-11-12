@@ -872,7 +872,7 @@ function compParts(T, items, level, size) {
   return parts;
 }
 const wrapText = (t, n = 55) => { const out = []; let line = ""; (t || "").split(" ").forEach((w) => { if ((line + " " + w).length > n) { out.push(line); line = w; } else line = line ? line + " " + w : w; }); if (line) out.push(line); return out; };
-function drawComposition(parts, level, canvasId, tableId, size) {
+function drawComposition(parts, level, canvasId, tableId, size, onSlice) {
   const col = COMP_COLORS[matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"];
   const sz = Math.round(size), f1 = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   const o = baseOpts(); delete o.scales;
@@ -880,6 +880,11 @@ function drawComposition(parts, level, canvasId, tableId, size) {
   o.plugins.tooltip.displayColors = true; o.plugins.tooltip.bodyFont = { weight: "400" };
   o.plugins.tooltip.callbacks = { label: (ctx) => { const p = parts[ctx.dataIndex]; return `${p.label}: ${pct1(p.slice)} das funções` + (p.cards != null ? ` · ${f1(p.cards)} de ${sz} cartas` : ""); },
     afterLabel: (ctx) => wrapText(parts[ctx.dataIndex].desc) };
+  if (onSlice) {
+    o.onClick = (_e, els) => { if (els.length) { const p = parts[els[0].index]; setTimeout(() => onSlice(p), 0); } };
+    o.onHover = (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; };
+    o.plugins.tooltip.callbacks.footer = () => "Clique para destacar estas cartas na lista.";
+  }
   upsert(canvasId, { type: "pie", data: { labels: parts.map((p) => p.label), datasets: [{ data: parts.map((p) => Math.round(p.slice * 1000) / 10), backgroundColor: parts.map((_, i) => col[i % col.length]), borderColor: css("--surface-1"), borderWidth: 2 }] }, options: o });
   const t = $(tableId); t.replaceChildren();
   const hr = t.createTHead().insertRow(); [["", ""], [{ func: "Função", sub: "Subfunção", hab: "Habilidade" }[level], ""], [`Cartas (de ${sz})`, "num"], ["% do deck", "num"], ["Fatia", "num"], ["Principais cartas", ""]].forEach(([h, c]) => hr.append(el("th", c, h)));
@@ -941,6 +946,44 @@ function divergingChart(id, wrapId, feats, valueOf, posColor, negColor, tooltip,
   $(wrapId).style.height = Math.max(240, fts.length * 26 + 60) + "px";
   barChart(id, fts.map((f) => f.label), [{ data: fts.map((f) => Math.round(valueOf(f) * 10) / 10), backgroundColor: fts.map((f) => valueOf(f) >= 0 ? posColor : negColor), borderSkipped: false }],
     { horizontal: true, labelMax: 40, fmt: (v) => (v > 0 ? "+" : "") + Number(v).toLocaleString("pt-BR"), tooltip: (i) => tooltip(fts[i]), onClick: onClick ? (i) => onClick(fts[i]) : undefined });
+}
+/** Meta tab: what the decks that beat a category have more (or less) of, per função, each bar split by the habilidades behind it. */
+function funcStackChart(cat, B, good, bad) {
+  const T = S.fn, FP = (B && B.funcParts) || {}, f1 = (v) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1, signDisplay: "exceptZero" });
+  const rows = Object.entries(FP).map(([fk, hs]) => {
+    let parts = Object.entries(hs).map(([h, v]) => ({ h: +h, v, label: `${T.subs[T.habs[+h][0]][1]} › ${T.habs[+h][1]}` })).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+    if (parts.length > 7) { const rest = parts.slice(6); parts = parts.slice(0, 6).concat([{ h: null, v: rest.reduce((a, p) => a + p.v, 0), label: `Outras ${rest.length} habilidades` }]); }
+    parts.sort((a, b) => b.v - a.v);
+    return { f: +fk, label: T.funcs[+fk], total: Object.values(hs).reduce((a, v) => a + v, 0), parts };
+  }).filter((r) => Math.abs(r.total) >= 0.3).sort((a, b) => b.total - a.total);
+  $("in-eff-wrap").style.height = Math.max(240, rows.length * 34 + 60) + "px";
+  const K = Math.max(1, ...rows.map((r) => r.parts.length));
+  const shade = (base, i) => { const a = [1, 0.78, 0.6, 0.46, 0.36, 0.28, 0.22][i] ?? 0.2; return base + Math.round(a * 255).toString(16).padStart(2, "0"); };
+  const hex = (c) => /^#[0-9a-f]{6}$/i.test(c) ? c : "#1baf7a";
+  const datasets = [...Array(K)].map((_, r) => ({
+    data: rows.map((row) => row.parts[r] ? Math.round(row.parts[r].v * 100) / 100 : null),
+    backgroundColor: rows.map((row) => { const p = row.parts[r]; if (!p) return "transparent"; const same = row.parts.filter((q) => (q.v >= 0) === (p.v >= 0)); return shade(hex(p.v >= 0 ? good : bad), same.indexOf(p)); }),
+    borderColor: css("--surface-1"), borderWidth: 1, borderRadius: 0, borderSkipped: false }));
+  const labels = rows.map((r) => r.label);
+  const o = baseOpts(); o.indexAxis = "y";
+  o.scales.x.stacked = true; o.scales.y.stacked = true; o.scales.y.grid.display = false;
+  o.scales.x.ticks = { callback: (v) => f1(v) };
+  o.interaction = { mode: "index", axis: "y", intersect: false };
+  o.plugins.tooltip.displayColors = true; o.plugins.tooltip.bodyFont = { weight: "400" };
+  o.plugins.tooltip.filter = (it) => it.raw != null;
+  o.plugins.tooltip.itemSort = (a, b) => Math.abs(b.raw) - Math.abs(a.raw);
+  o.plugins.tooltip.callbacks = {
+    title: (it) => { const r = rows[it[0].dataIndex]; return `${r.label}: ${f1(r.total)} cartas por 60 nos decks que vão melhor contra ${cat}`; },
+    label: (ctx) => { const r = rows[ctx.dataIndex], p = r.parts[ctx.datasetIndex]; return `${p.label}: ${f1(p.v)} (${Math.round(p.v / r.total * 100)}% da barra)`; },
+    footer: () => "Clique numa parte para ver as cartas daquela habilidade.",
+  };
+  o.onClick = (e, els, chart) => {
+    const hit = chart.getElementsAtEventForMode(e, "nearest", { intersect: true }, false)[0] || els[0]; if (!hit) return;
+    const r = rows[hit.index], p = r.parts[hit.datasetIndex];
+    setTimeout(() => (p && p.h != null && hit === chart.getElementsAtEventForMode(e, "nearest", { intersect: true }, false)[0]) ? goCards("hab", p.h) : goCards("func", r.f), 0);
+  };
+  o.onHover = (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; };
+  upsert("c-in-eff", { type: "bar", data: { labels, datasets }, options: o });
 }
 const MU_MIN = 300; // games for a matchup to count
 const GENERIC_ARCH = /^(Midrange|Aggro|Control|Outros|Tempo)$/;
@@ -1017,9 +1060,23 @@ function renderInsights() {
   seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === S.view.insCat));
   // 1. categories
   $("in-cat-note").textContent = `Classificamos os decks do ranqueado online (${I.eraName}) em quatro categorias pelo jeito como ganham: velocidade das vitórias, duração das partidas, curva, quantidade de personagens, wipes, remoção e compra. Presença = fatia das partidas jogadas com decks de cada categoria. Atualizado em ${I.updated.split("-").reverse().join("/")}.`;
-  const kp = $("in-cat-kpis"); kp.replaceChildren();
-  O.forEach((c) => { const k = el("div", "kpi"); const lab = el("span", "kpi-label tip", c); lab.title = CAT_DESC[c]; const v = el("span", "kpi-value", pct1(I.categories.presence[c])); v.style.color = catColor(c);
-    k.append(lab, v, el("span", "kpi-sub", CAT_DESC[c])); kp.append(k); });
+  {
+    const o = baseOpts(); delete o.scales;
+    o.plugins.legend = { display: true, position: "bottom", labels: { boxWidth: 12, boxHeight: 12, color: css("--text-secondary") } };
+    o.plugins.tooltip.displayColors = true; o.plugins.tooltip.bodyFont = { weight: "400" };
+    o.plugins.tooltip.callbacks = { label: (ctx) => `${O[ctx.dataIndex]}: ${pct1(I.categories.presence[O[ctx.dataIndex]])} das partidas`, afterLabel: (ctx) => [...wrapText(CAT_DESC[O[ctx.dataIndex]], 50), "Clique para destacar os decks desta categoria."] };
+    o.onClick = (_e, els) => { if (!els.length) return; const c = O[els[0].index]; setTimeout(() => { S.insHL = S.insHL === c ? null : c; renderInsights(); if (S.insHL) $("in-decks-card").scrollIntoView({ behavior: "smooth", block: "start" }); }, 0); };
+    o.onHover = (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; };
+    upsert("c-in-pie", { type: "pie", data: { labels: O, datasets: [{ data: O.map((c) => Math.round(I.categories.presence[c] * 1000) / 10), backgroundColor: O.map((c) => catColor(c)),
+      offset: O.map((c) => c === S.insHL ? 12 : 0), borderColor: css("--surface-1"), borderWidth: 2 }] }, options: o });
+    const M = I.categories.matrix || {}, tm = $("t-in-mx"); tm.replaceChildren();
+    const hr = tm.createTHead().insertRow(); hr.append(el("th", null, "Categoria ↓ contra →"));
+    O.forEach((c) => { const th = el("th", "num tip", c); th.title = CAT_DESC[c]; hr.append(th); });
+    const bd = tm.createTBody();
+    O.forEach((a) => { const tr = bd.insertRow(); tr.style.cursor = "default"; const th = tr.insertCell(); th.className = "name"; const sp = el("span", "tip", a); sp.title = CAT_DESC[a]; th.append(sp);
+      O.forEach((b) => { const v = (M[a] || {})[b]; const td = numCell(tr, a === b ? "espelho" : v == null ? "–" : pct1(v));
+        if (a !== b && v != null) { td.classList.add(v >= 0.53 ? "good-cell" : v <= 0.47 ? "bad-cell" : "mid-cell"); td.title = `${a} contra ${b}: ${pct1(v)} de vitórias`; } }); });
+  }
   const tc = $("t-in-cent"); tc.replaceChildren(); const hc = tc.createTHead().insertRow(); ["", ...O].forEach((h, i) => { const th = el("th", i ? "num tip" : "", h); if (i) th.title = `${h}: ${CAT_DESC[h]}`; hc.append(th); });
   const bc = tc.createTBody();
   I.features.forEach((l, k) => { const tr = bc.insertRow(); tr.style.cursor = "default"; tr.insertCell().textContent = l;
@@ -1035,17 +1092,21 @@ function renderInsights() {
   const items = (level) => Object.entries((B && B[level]) || {}).map(([k, v]) => ({ k: +k, level, v, label: lab[level](+k), desc: dsc[level][+k] }));
   const tip = (e) => [`${e.v > 0 ? "+" : ""}${f1(e.v)} cartas por 60 nos decks que vão melhor contra ${c}`, ...wrapText(e.desc, 55), "Clique para ver essas cartas no meta."];
   const go = (e) => goCards(e.level, e.k);
-  divergingChart("c-in-eff", "in-eff-wrap", items("func"), (e) => e.v, good, bad, tip, go);
+  funcStackChart(c, B, good, bad);
   divergingChart("c-in-beat", "in-beat-wrap", items(lv), (e) => e.v, good, bad, tip, go);
   $("in-beat-note").textContent = B
-    ? `Separamos os ${B.n} decks do meta com partidas suficientes contra ${c} em três grupos pelo win rate contra ${c} e comparamos as listas do terço que mais ganha com as do terço que mais perde. Verde: o que os vencedores têm a mais (cartas por 60); vermelho: o que têm a menos. Uma carta conta em cada função que tem. À esquerda, as funções; à direita, o detalhe. Clique numa barra para ver as cartas na aba Cartas. É associação, não causa: os decks que vão bem podem ter outras coisas em comum.`
+    ? `Separamos os ${B.n} decks do meta com partidas suficientes contra ${c} em três grupos pelo win rate contra ${c} e comparamos as listas do terço que mais ganha com as do terço que mais perde. Verde: o que os vencedores têm a mais (cartas por 60); vermelho: o que têm a menos. Uma carta conta em cada função que tem. À esquerda, cada função dividida pelas habilidades que a explicam (passe o mouse); à direita, o detalhe. Clique numa barra para ver as cartas na aba Cartas. É associação, não causa: os decks que vão bem podem ter outras coisas em comum.`
     : `Não há decks suficientes com partidas contra ${c} para esta comparação.`;
   // 3. deck tiles
   $("in-decks-note").textContent = "Listas de referência escolhidas por nós entre as builds mais jogadas de cada arquétipo, com crédito. Clique num deck para ver a ficha.";
   const box = $("in-decks"); box.replaceChildren();
-  I.decks.forEach((d) => { const b = el("button", "deck-tile"); b.type = "button"; b.setAttribute("aria-pressed", S.insDeck === d.key);
+  $("in-decks-hl").replaceChildren();
+  if (S.insHL) { const x = el("button", "cx-link", "mostrar todos"); x.type = "button"; x.onclick = () => { S.insHL = null; renderInsights(); };
+    $("in-decks-hl").append(document.createTextNode(`Destacando: ${S.insHL} (${I.decks.filter((d) => d.category === S.insHL).length} decks) · `), x); }
+  I.decks.forEach((d) => { const b = el("button", "deck-tile" + (S.insHL ? (d.category === S.insHL ? " hl" : " dim") : "")); b.type = "button"; b.setAttribute("aria-pressed", S.insDeck === d.key);
+    if (S.insHL && d.category === S.insHL) b.style.borderColor = catColor(d.category);
     b.append(inkDots(d.colors), document.createTextNode(shortDeck(d)), el("small", null, `${d.colors.join("/")} · ${d.category}`));
-    b.onclick = () => { S.insDeck = S.insDeck === d.key ? null : d.key; renderInsights(); if (S.insDeck) $("in-sheet").scrollIntoView({ behavior: "smooth", block: "start" }); };
+    b.onclick = () => { S.insDeck = S.insDeck === d.key ? null : d.key; S.insFn = null; renderInsights(); if (S.insDeck) $("in-sheet").scrollIntoView({ behavior: "smooth", block: "start" }); };
     box.append(b); });
   $("in-credit").textContent = I.credit;
   renderInsightSheet();
@@ -1064,14 +1125,32 @@ function renderInsightSheet() {
   const subLabel = (k) => `${T.funcs[T.subs[k][0]]} › ${T.subs[k][1]}`;
   [["in-sh-hard", d.struggles], ["in-sh-easy", d.thrives]].forEach(([id, arr]) => { const ul = $(id); ul.replaceChildren();
     (arr.length ? arr : [null]).forEach((k) => { const li = el("li", k == null ? null : "tip", k == null ? "Sem padrão claro nos dados." : subLabel(k)); if (k != null) li.title = T.desc.subs[k]; ul.append(li); }); });
+  [["in-sh-best", d.best], ["in-sh-worst", d.worst]].forEach(([id, arr]) => { const ul = $(id); ul.replaceChildren();
+    (arr && arr.length ? arr : [null]).forEach((o) => { const li = el("li");
+      if (!o) li.textContent = "Sem dados suficientes.";
+      else { const ref = I.decks.find((x) => x.key === o.key); li.append(inkDots(o.colors));
+        if (ref) { const bt = el("button", "cx-link", shortDeck(o)); bt.type = "button"; bt.title = "Abrir a ficha deste deck"; bt.onclick = () => { S.insDeck = ref.key; S.insFn = null; renderInsights(); $("in-sheet").scrollIntoView({ behavior: "smooth", block: "start" }); }; li.append(bt); }
+        else li.append(document.createTextNode(o.name)); }
+      ul.append(li); }); });
+  const fnsOf = (x) => new Set((S.fn.byIdent[x.c.ident] || []).map(([hi]) => T.subs[T.habs[hi][0]][0]));
   const parts = compParts(T, items.map((x) => ({ fx: S.fn.byIdent[x.c.ident], w: x.n, name: x.c.name })), "func", total);
-  drawComposition(parts, "func", "c-in-sh", "t-in-sh-comp", total);
-  const t = $("t-in-sh"); t.replaceChildren(); const h = t.createTHead().insertRow(); [["Cópias", "num"], ["Carta", ""], ["Custo", "num"], ["Funções", ""], ["Preço", "num"]].forEach(([x, cl]) => h.append(el("th", cl, x)));
-  const b = t.createTBody();
-  items.sort((a, b2) => (+a.c.cost || 0) - (+b2.c.cost || 0) || a.c.name.localeCompare(b2.c.name)).forEach((x) => { const tr = b.insertRow(); tr.tabIndex = 0; if (x.c.id) tr.onclick = () => openDetail(x.c);
-    numCell(tr, x.n); if (x.c.id) nameCell(tr, x.c); else tr.insertCell().textContent = x.c.name; numCell(tr, x.c.cost || "–");
-    const fc = tr.insertCell(); fc.className = "small"; fc.textContent = [...new Set((S.fn.byIdent[x.c.ident] || []).map(([hi]) => T.funcs[T.subs[T.habs[hi][0]][0]]))].join(", ") || "–";
-    numCell(tr, usd(x.c.price)); });
+  if (S.insFn != null && !parts.some((p) => p.k === S.insFn)) S.insFn = null;
+  const drawList = () => {
+    const hl = S.insFn, t = $("t-in-sh"); t.replaceChildren(); const h = t.createTHead().insertRow(); [["Cópias", "num"], ["Carta", ""], ["Custo", "num"], ["Funções", ""], ["Preço", "num"]].forEach(([x, cl]) => h.append(el("th", cl, x)));
+    const b = t.createTBody();
+    items.slice().sort((a, b2) => (hl != null ? (fnsOf(b2).has(hl) - fnsOf(a).has(hl)) : 0) || (+a.c.cost || 0) - (+b2.c.cost || 0) || a.c.name.localeCompare(b2.c.name)).forEach((x) => {
+      const tr = b.insertRow(); tr.tabIndex = 0; if (x.c.id) tr.onclick = () => openDetail(x.c);
+      if (hl != null) tr.className = fnsOf(x).has(hl) ? "hl" : "dim";
+      numCell(tr, x.n); if (x.c.id) nameCell(tr, x.c); else tr.insertCell().textContent = x.c.name; numCell(tr, x.c.cost || "–");
+      const fc = tr.insertCell(); fc.className = "small"; fc.textContent = [...fnsOf(x)].map((k) => T.funcs[k]).join(", ") || "–";
+      numCell(tr, usd(x.c.price)); });
+    const cap = $("in-sh-hl"); cap.replaceChildren();
+    if (hl != null) { const n = items.filter((x) => fnsOf(x).has(hl)).reduce((a, x) => a + x.n, 0), bt = el("button", "cx-link", "mostrar todas"); bt.type = "button"; bt.onclick = () => { S.insFn = null; drawList(); };
+      cap.append(document.createTextNode(`Destacando ${T.funcs[hl]}: ${n} de ${total} cartas (no topo da lista) · `), bt); }
+    else cap.textContent = "Clique numa fatia da pizza para destacar as cartas daquela função na lista.";
+  };
+  drawComposition(parts, "func", "c-in-sh", "t-in-sh-comp", total, (p) => { if (typeof p.k !== "number") return; S.insFn = S.insFn === p.k ? null : p.k; drawList(); });
+  drawList();
   $("in-sh-analyze").onclick = () => { S.dlText = items.map((x) => `${x.n} ${x.c.ident || x.c.name}`).join("\n"); $("dl-text").value = S.dlText; try { localStorage.setItem("lorcana-decklist", S.dlText); } catch (e) { /* storage off */ } S.tab = "deck"; changed(); };
 }
 

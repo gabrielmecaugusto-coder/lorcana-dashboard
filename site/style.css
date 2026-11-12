@@ -180,3 +180,12 @@ details.cx-fn > summary small { font-weight: 400; color: var(--text-secondary); 
 .cx-prose p, .cx-prose li { font-size: 14px; line-height: 1.55; max-width: 860px; }
 .cx-prose li { margin-bottom: 4px; }
 .cx-link { background: none; border: 0; padding: 0; color: var(--series-1); cursor: pointer; font: inherit; text-decoration: underline; }
+.deck-tile.dim { opacity: .35; }
+.deck-tile.hl { border-width: 2px; box-shadow: 0 0 0 1px currentColor inset; }
+.t tr.dim td { opacity: .35; }
+.t tr.hl td { background: var(--surface-2, rgba(127,127,127,.08)); }
+.t td.good-cell { color: var(--good); font-weight: 600; }
+.t td.bad-cell { color: var(--critical); font-weight: 600; }
+ul.plain { list-style: none; padding-left: 0; margin: 4px 0; }
+ul.plain li { margin: 3px 0; display: flex; align-items: center; gap: 6px; }
+.grid2.tight { gap: 10px; }
