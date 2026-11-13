@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-12T20:06:19+0000",
+"updated": "2026-11-13T20:05:52+0000",
 "groups": [
 {
 "groupId": 17690,
@@ -68859,6 +68859,36 @@
 "isSingle": true
 },
 {
+"productId": 718571,
+"groupId": 23234,
+"name": "Ursula - Deceiver",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/718571_200w.jpg",
+"url": "https://www.tcgplayer.com/product/718571/lorcana-tcg-disney-lorcana-promo-cards-ursula-deceiver",
+"isSingle": false
+},
+{
+"productId": 718574,
+"groupId": 23234,
+"name": "Be Prepared",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/718574_200w.jpg",
+"url": "https://www.tcgplayer.com/product/718574/lorcana-tcg-disney-lorcana-promo-cards-be-prepared",
+"rarity": "Promo",
+"number": "15",
+"text": "(A character with cost 7 or more can [Exert] to sing this song for free.)\r\nBanish all characters.",
+"isSingle": true
+},
+{
+"productId": 718584,
+"groupId": 23234,
+"name": "Gaston - Superior Archer",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/718584_200w.jpg",
+"url": "https://www.tcgplayer.com/product/718584/lorcana-tcg-disney-lorcana-promo-cards-gaston-superior-archer",
+"rarity": "Promo",
+"number": "4",
+"text": "[Watch This!] When you play this character, you may banish chosen character with 5 Strength or more.",
+"isSingle": true
+},
+{
 "productId": 719729,
 "groupId": 24740,
 "name": "Disney Lorcana: Hyperia City Gift Box - Beast",
@@ -75125,6 +75155,25 @@
 "willpower": "1",
 "lore": "1",
 "isSingle": true
+},
+{
+"productId": 733373,
+"groupId": 23234,
+"name": "Madam Mim - Resourceful Trickster (Foil)",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/733373_200w.jpg",
+"url": "https://www.tcgplayer.com/product/733373/lorcana-tcg-disney-lorcana-promo-cards-madam-mim-resourceful-trickster-foil",
+"rarity": "Promo",
+"number": "17",
+"text": "[Upper Hand] When you play this character, if you removed an ink drop to play her, draw 2 cards.[Bauble Game] Once during your turn, whenever you remove an ink drop, draw a card.",
+"isSingle": true
+},
+{
+"productId": 733378,
+"groupId": 23234,
+"name": "Madam Mim - Resourceful Trickster",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/733378_200w.jpg",
+"url": "https://www.tcgplayer.com/product/733378/lorcana-tcg-disney-lorcana-promo-cards-madam-mim-resourceful-trickster",
+"isSingle": false
 }
 ]
 }
