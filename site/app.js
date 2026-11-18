@@ -19,7 +19,7 @@ const S = {
   filter: { window: "d30", from: "", to: "", format: "", sets: new Set(), inks: new Set(), rarities: new Set(), mechs: new Set(), decks: new Set(), cats: new Set(), fx: new Set(), printing: "", min: 0, q: "" },
   duels: null, duelsByPid: new Map(), duelsById: new Map(), metaSort: { key: "dUse", dir: -1 }, metaPage: 0,
   deckSort: { key: "wr", dir: -1 }, mechSort: { key: "dShare", dir: -1 }, mechOpen: null, mechLines: {}, momSel: new Set(), mcSort: { key: "s1", dir: -1 }, mcPage: 0, muSort: { key: "games", dir: -1 }, selDeck: null, /* deck key */ deckMin: 2000,
-  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", catGran: "era", mechGran: "week", mechLevel: "func", compLevel: "func", dlLevel: "func", insCat: "Aggro", insLevel: "sub", cardsAll: false, whyLevel: "sub", vsCat: "Aggro", gran: "monthly", ev: { rel: true, rot: true } },
+  view: { evoMetric: "total", group: "set", distMetric: "total", chgGroup: "ink", deckView: "deck", deckEra: "", catGran: "era", mechGran: "week", mechLevel: "func", compLevel: "func", dlLevel: "func", insCat: "Aggro", insLevel: "sub", cardsAll: false, useWin: "2", whyLevel: "sub", vsCat: "Aggro", gran: "monthly", ev: { rel: true, rot: true } },
   sort: { key: "share", dir: -1 }, page: 0, tab: "overview", charts: {}, detail: null, ms: {},
 };
 
@@ -613,11 +613,13 @@ function renderCards() {
   if (!base) { $("cards-note").textContent = "Os dados de uso no meta não estão disponíveis."; tbl.replaceChildren(); return; }
   const U = usageMap(base), ref = refCards(), idents = new Set();
   S.rows.forEach((c) => { if (c.ident && fxMatch(c.ident)) idents.add(c.ident); });
-  let rows = [...idents].map((k) => { const u = U.get(k); return { c: ref.get(k), k, share: u ? u.share : 0, copies: u ? u.copies : null, n: u ? u.n : 0 }; }).filter((r) => r.c);
+  const WU = weeklyUse();
+  let rows = [...idents].map((k) => { const u = U.get(k); return { c: ref.get(k), k, share: u ? u.share : 0, copies: u ? u.copies : null, n: u ? u.n : 0, du: WU ? useChange(k) : null }; }).filter((r) => r.c);
   if (!S.view.cardsAll) rows = rows.filter((r) => r.share > 0);
   const cols = [["img", "", null], ["name", "Carta", (r) => r.c.name], ["cost", "Custo", (r) => +r.c.cost || 0], ["fn", "Funções", null],
     ["share", "Presença nos decks", (r) => r.share], ["copies", "Cópias (quando usa)", (r) => r.copies ?? -1]];
   if (base.src === "ref") cols.push(["n", "Decks", (r) => r.n]);
+  if (WU) cols.push(["du", `Uso no ranqueado: variação (${WU.label})`, (r) => r.du == null ? -1e9 : r.du.isNew ? -1e8 : r.du.pct]);
   const col = cols.find((c) => c[0] === S.sort.key && c[2]) || cols[4]; if (col[0] !== S.sort.key) S.sort = { key: "share", dir: -1 };
   rows.sort((a, b) => { const x = col[2](a), y = col[2](b); return ((x > y ? 1 : x < y ? -1 : 0) * S.sort.dir) || (b.share - a.share) || a.c.name.localeCompare(b.c.name); });
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)); S.page = Math.min(S.page, pages - 1);
@@ -630,7 +632,8 @@ function renderCards() {
   tbl.replaceChildren();
   const head = tbl.createTHead().insertRow();
   cols.forEach(([k, t, f]) => {
-    const th = el("th", ["cost", "share", "copies", "n"].includes(k) ? "num" : "", t);
+    const th = el("th", ["cost", "share", "copies", "n", "du"].includes(k) ? "num" : "", t);
+    if (k === "du") { th.classList.add("tip"); th.title = `Uso = vezes que a carta veio na mão inicial, por jogador-partida, em todo o ranqueado Core BO1 do Duels.ink (não muda com os filtros de deck). Compara a média das 2 últimas semanas (${WU.end}) com a de 2 semanas no início do período (${WU.start}).`; }
     if (f) {
       th.tabIndex = 0; if (S.sort.key === k) th.setAttribute("aria-sort", S.sort.dir < 0 ? "descending" : "ascending");
       th.onclick = th.onkeydown = (e) => { if (e.type === "click" || e.key === "Enter") { S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : (k === "name" || k === "cost" ? 1 : -1) }; renderCards(); } };
@@ -648,7 +651,83 @@ function renderCards() {
     const sc = numCell(tr, r.share ? pct1(r.share) : "–"); if (r.share) { const bar = el("i", "sharebar"); bar.style.width = Math.round(r.share * 60) + "px"; sc.prepend(bar); }
     numCell(tr, r.copies == null ? "–" : num2(r.copies));
     if (base.src === "ref") numCell(tr, r.n ? `${r.n} de ${nd}` : "–");
+    if (WU) {
+      const d = r.du, cell = numCell(tr, d == null ? "–" : d.isNew ? "novo" : (d.pct > 0 ? "+" : "") + Math.round(d.pct * 100).toLocaleString("pt-BR") + "%");
+      if (d) { cell.classList.add(d.isNew || d.pct >= 0.3 ? "good-cell" : d.pct <= -0.3 ? "bad-cell" : "x");
+        cell.title = `${(d.u0 * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% → ${(d.u1 * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% das mãos iniciais${d.launched ? " · carta com menos de 4 semanas no início do período: parte da variação é só por ser nova" : ""}`;
+        if (d.launched) cell.append(el("small", null, "carta nova")); }
+    }
   });
+  $("cards-pu-box").hidden = !WU;
+  if (WU) renderPriceUse(rows);
+}
+/* weekly usage of each card in the whole ranked ladder (private build only) */
+const USE_WIN = { "2": [2, "2 semanas"], "4": [4, "1 mês"], "9": [9, "2 meses"], "13": [13, "3 meses"] };
+function weeklyUse() {
+  if (!S.duels || !S.duels.weekly || !S.duels.weekly.length) return null;
+  if (!S._wu) {
+    const W = S.duels.weekly, m = new Map();
+    W.forEach((w, i) => { const g = 2 * w.games; Object.entries(w.cards || {}).forEach(([id, v]) => { const k = identOfDuels(id); if (!k) return;
+      let a = m.get(k); if (!a) { a = new Float64Array(W.length); m.set(k, a); } a[i] += v[0] / g; }); });
+    S._wu = { weeks: W.map((w) => w.week), m };
+  }
+  const K = (USE_WIN[S.view.useWin] || USE_WIN["2"])[0], n = S._wu.weeks.length, L = n - 1, A = Math.max(1, L - K);
+  const wk = S._wu.weeks, endDay = (w) => addDays(w, 6);
+  return Object.assign(S._wu, { K, L, A, label: (USE_WIN[S.view.useWin] || USE_WIN["2"])[1], from: endDay(wk[A]), to: endDay(wk[L]),
+    start: `${fmtDate(wk[A - 1])} a ${fmtDate(endDay(wk[A]))}`, end: `${fmtDate(wk[L - 1])} a ${fmtDate(endDay(wk[L]))}` });
+}
+function useChange(k) {
+  const W = S._wu, a = W && W.m.get(k); if (!a) return null;
+  const u1 = (a[W.L] + a[W.L - 1]) / 2, u0 = (a[W.A] + a[W.A - 1]) / 2;
+  if (u1 < 0.0005 && u0 < 0.0005) return null;
+  const c = S.cards.find((x) => x.ident === k), set = c && S.sets.find((g) => g.groupId === c.set);
+  const launched = !!(set && set.publishedOn > addDays(W.weeks[W.A - 1], -28));
+  return { u0, u1, pct: u0 >= 0.0005 ? u1 / u0 - 1 : null, isNew: u0 < 0.0005, launched };
+}
+/* below the table: did the cards whose usage grew also get dearer, over the same period? */
+let puToken = 0;
+async function renderPriceUse(rows) {
+  const W = S._wu, my = ++puToken;
+  const cand = rows.filter((r) => r.du && !r.du.isNew && r.du.u0 >= 0.001 && r.du.u1 >= 0.001 && r.c.id);
+  $("pu-title").textContent = `Preço × uso no ranqueado, ${W.label} (até ${fmtDate(W.to)})`;
+  if (cand.length < 5) { $("pu-note").textContent = "Poucas cartas com uso suficiente nos filtros atuais para comparar."; $("t-pu").replaceChildren(); upsert("c-pu", { type: "scatter", data: { datasets: [] }, options: baseOpts() }); return; }
+  await loadHistories([...new Set(cand.map((r) => r.c.set))]);
+  if (my !== puToken) return;
+  const pTo = W.to < S.latest ? W.to : S.latest, pFrom = addDays(pTo, -7 * (W.L - W.A));
+  const pts = [];
+  cand.forEach((r) => { const h = histNow(r.c.set); if (!h) return; const p0 = priceAt(h, r.c.id, pFrom), p1 = priceAt(h, r.c.id, pTo);
+    if (!p0 || !p1 || Math.max(p0, p1) < 0.5) return;
+    pts.push({ x: Math.log(r.du.u1 / r.du.u0), y: Math.log(p1 / p0), r, p0, p1 }); });
+  const n = pts.length, mx = pts.reduce((a, p) => a + p.x, 0) / n, my2 = pts.reduce((a, p) => a + p.y, 0) / n;
+  const sxy = pts.reduce((a, p) => a + (p.x - mx) * (p.y - my2), 0), sxx = pts.reduce((a, p) => a + (p.x - mx) ** 2, 0), syy = pts.reduce((a, p) => a + (p.y - my2) ** 2, 0);
+  const corr = sxx && syy ? sxy / Math.sqrt(sxx * syy) : 0, slope = sxx ? sxy / sxx : 0;
+  const top = pts.slice().sort((a, b) => b.y - a.y).slice(0, 10), topSet = new Set(top);
+  const fmtX = (v) => Math.abs(v) < 0.01 ? "igual" : v > 0 ? "×" + Math.exp(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) : "÷" + Math.exp(-v).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const pc = (v) => (v > 0 ? "+" : "") + Math.round((Math.exp(v) - 1) * 100).toLocaleString("pt-BR") + "%";
+  const strength = Math.abs(corr) >= 0.5 ? "forte" : Math.abs(corr) >= 0.3 ? "moderada" : Math.abs(corr) >= 0.15 ? "fraca" : "quase nenhuma";
+  $("pu-note").textContent = `${n} cartas com uso de 0,1% ou mais no início e no fim do período e preço de US$ 0,50 ou mais. Correlação entre a variação do uso e a do preço: ${corr.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} (${strength}). Na média, dobrar o uso veio junto de ${pc(slope * Math.log(2))} no preço. Em azul, as 10 cartas que mais subiram de preço. Preço nominal da impressão normal, de ${fmtDate(pFrom)} a ${fmtDate(pTo)}, sem descontar a coleção.`;
+  const accent = css("--series-1") || "#2a6fdb", grey = css("--text-muted") || "#999";
+  const o = baseOpts();
+  o.scales.x = { type: "linear", title: { display: true, text: "Variação do uso" }, ticks: { callback: fmtX, stepSize: Math.LN2 }, grid: { color: css("--grid") } };
+  o.scales.y = { type: "linear", title: { display: true, text: "Variação do preço" }, ticks: { callback: (v) => pc(v), stepSize: Math.LN2 }, grid: { color: css("--grid") } };
+  o.plugins.tooltip.callbacks = { title: (it) => it[0].raw.r.c.name, label: (ctx) => { const p = ctx.raw; return [`Uso: ${(p.r.du.u0 * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% → ${(p.r.du.u1 * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% (${pc(p.x)})`, `Preço: ${usd(p.p0)} → ${usd(p.p1)} (${pc(p.y)})`]; } };
+  o.onClick = (_e, els) => { if (els.length) { const p = els[0].element.$context.raw; setTimeout(() => openDetail(p.r.c), 0); } };
+  o.onHover = (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; };
+  const xs = pts.map((p) => p.x), x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const labels = { id: "puLabels", afterDatasetsDraw(ch) { const ctx = ch.ctx, meta = ch.getDatasetMeta(1); ctx.save(); ctx.font = "600 11px system-ui, sans-serif"; ctx.fillStyle = css("--text") || "#222";
+    meta.data.forEach((el2, i) => { const p = top.at(i); if (!p) return; const first = p.r.c.name.split(" - ")[0], dup = top.filter((q) => q.r.c.name.split(" - ")[0] === first).length > 1, nm = dup ? p.r.c.name.replace(" - ", " – ") : first; const right = el2.x < ch.chartArea.right - 120; ctx.textAlign = right ? "left" : "right"; ctx.fillText(nm, el2.x + (right ? 8 : -8), el2.y + 4); }); ctx.restore(); } };
+  upsert("c-pu", { type: "scatter", data: { datasets: [
+    { label: "Outras cartas", data: pts.filter((p) => !topSet.has(p)), backgroundColor: grey + "99", pointRadius: 4, pointHoverRadius: 6 },
+    { label: "10 maiores altas de preço", data: top, backgroundColor: accent, pointRadius: 6, pointHoverRadius: 8 },
+    { type: "line", label: "Tendência", data: [{ x: x0, y: my2 + slope * (x0 - mx) }, { x: x1, y: my2 + slope * (x1 - mx) }], borderColor: grey, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 } ] }, options: o, plugins: [labels] });
+  const t = $("t-pu"); t.replaceChildren(); const hr = t.createTHead().insertRow();
+  [["", ""], ["Carta", ""], ["Preço no período", "num"], ["Variação do preço", "num"], ["Uso no período", "num"], ["Variação do uso", "num"]].forEach(([x, c]) => hr.append(el("th", c, x)));
+  const tb = t.createTBody();
+  top.forEach((p) => { const tr = tb.insertRow(); tr.tabIndex = 0; tr.onclick = () => openDetail(p.r.c); imgCell(tr, p.r.c);
+    const td = tr.insertCell(); td.className = "name"; td.append(document.createTextNode(p.r.c.name), el("small", null, [p.r.c.rarity, p.r.c.ink && p.r.c.ink.replace(";", "/")].filter(Boolean).join(" · ")));
+    numCell(tr, `${usd(p.p0)} → ${usd(p.p1)}`); numCell(tr, pc(p.y)).classList.add(p.y >= 0 ? "good-cell" : "bad-cell");
+    numCell(tr, `${(p.r.du.u0 * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% → ${(p.r.du.u1 * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`);
+    numCell(tr, pc(p.x)).classList.add(p.x >= 0.26 ? "good-cell" : p.x <= -0.36 ? "bad-cell" : "x"); });
 }
 /** From an analysis to the Cards tab, filtered by one função / subfunção / habilidade. */
 function goCards(level, k) {

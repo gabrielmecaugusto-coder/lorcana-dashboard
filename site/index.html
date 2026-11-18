@@ -410,10 +410,18 @@
   <section id="tab-cards" class="tab" hidden>
     <article class="card">
       <div class="row-between"><h2>Participação no meta <span class="muted" id="cards-count"></span></h2>
-        <div class="controls"><label class="small"><input type="checkbox" id="cards-all"> Mostrar também cartas fora desses decks</label>
+        <div class="controls"><div class="seg" role="group" aria-label="Período da variação do uso" data-ctl="useWin" data-duels hidden><span class="small muted">Variação do uso em</span><button type="button" data-v="2">2 semanas</button><button type="button" data-v="4">1 mês</button><button type="button" data-v="9">2 meses</button><button type="button" data-v="13">3 meses</button></div>
+        <label class="small"><input type="checkbox" id="cards-all"> Mostrar também cartas fora desses decks</label>
         <div class="pager"><button type="button" id="pg-prev">‹</button><span id="pg-info"></span><button type="button" id="pg-next">›</button></div></div></div>
       <p class="muted small" id="cards-note"></p>
       <div class="table-wrap"><table class="t sortable" id="t-cards"></table></div>
+    </article>
+    <article class="card" id="cards-pu-box" hidden>
+      <h2 id="pu-title">Preço × uso no ranqueado</h2>
+      <p class="muted small" id="pu-note"></p>
+      <div class="chart" style="height:420px"><canvas id="c-pu"></canvas></div>
+      <h3 style="margin-top:14px">As 10 cartas que mais subiram de preço no período</h3>
+      <div class="table-wrap"><table class="t" id="t-pu"></table></div>
     </article>
   </section>
 </main>
