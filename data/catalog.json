@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-17T20:05:43+0000",
+"updated": "2026-11-18T20:05:56+0000",
 "groups": [
 {
 "groupId": 17690,
@@ -68861,9 +68861,9 @@
 {
 "productId": 718571,
 "groupId": 23234,
-"name": "Ursula - Deceiver",
+"name": "Ursula - Deceiver (Foil)",
 "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/718571_200w.jpg",
-"url": "https://www.tcgplayer.com/product/718571/lorcana-tcg-disney-lorcana-promo-cards-ursula-deceiver",
+"url": "https://www.tcgplayer.com/product/718571/lorcana-tcg-disney-lorcana-promo-cards-ursula-deceiver-foil",
 "rarity": "Promo",
 "number": "14",
 "text": "[You'll Never Even Miss It] When you play this character, chosen opponent reveals their hand and discards a song card of your choice.",
@@ -68882,9 +68882,9 @@
 {
 "productId": 718574,
 "groupId": 23234,
-"name": "Be Prepared",
+"name": "Be Prepared (Foil)",
 "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/718574_200w.jpg",
-"url": "https://www.tcgplayer.com/product/718574/lorcana-tcg-disney-lorcana-promo-cards-be-prepared",
+"url": "https://www.tcgplayer.com/product/718574/lorcana-tcg-disney-lorcana-promo-cards-be-prepared-foil",
 "rarity": "Promo",
 "number": "15",
 "text": "(A character with cost 7 or more can [Exert] to sing this song for free.)\r\nBanish all characters.",
@@ -75225,6 +75225,55 @@
 "strength": "7",
 "willpower": "5",
 "lore": "3",
+"isSingle": true
+},
+{
+"productId": 733751,
+"groupId": 23234,
+"name": "Gaston - Superior Archer (Foil)",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/733751_200w.jpg",
+"url": "https://www.tcgplayer.com/product/733751/lorcana-tcg-disney-lorcana-promo-cards-gaston-superior-archer-foil",
+"rarity": "Promo",
+"number": "16",
+"text": "[Watch This!] When you play this character, you may banish chosen character with 5 Strength or more.",
+"franchise": "Beauty and the Beast",
+"cost": "5",
+"version": "Superior Archer",
+"inkable": "Yes",
+"ink": "Amber",
+"cardType": "Character",
+"classification": "Storyborn;Villain",
+"strength": "3",
+"willpower": "4",
+"lore": "1",
+"isSingle": true
+},
+{
+"productId": 734009,
+"groupId": 23234,
+"name": "Be Prepared",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/734009_200w.jpg",
+"url": "https://www.tcgplayer.com/product/734009/lorcana-tcg-disney-lorcana-promo-cards-be-prepared",
+"rarity": "Promo",
+"number": "3",
+"text": "(A character with cost 7 or more can [Exert] to sing this song for free.)\r\nBanish all characters.",
+"franchise": "Lion King",
+"cost": "7",
+"inkable": "No",
+"ink": "Ruby",
+"cardType": "Action",
+"classification": "Song",
+"isSingle": true
+},
+{
+"productId": 734014,
+"groupId": 23234,
+"name": "Ursula - Deceiver",
+"imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/734014_200w.jpg",
+"url": "https://www.tcgplayer.com/product/734014/lorcana-tcg-disney-lorcana-promo-cards-ursula-deceiver",
+"rarity": "Promo",
+"number": "2",
+"text": "[You'll Never Even Miss It] When you play this character, chosen opponent reveals their hand and discards a song card of your choice.",
 "isSingle": true
 }
 ]
